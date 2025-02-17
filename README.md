@@ -1,7 +1,7 @@
 # EQNIO
 
 ![Teaser](images/download.png)
-Figure:Effect of gravity-aligned IMU frame, reference frame in which linear accelerations and angular velocities are defined: Approaches that rely on data augmentation (TLIO,left) produce a different trajectory for different reference frames while strict equivariant approaches (EqNIO,right) yield one trajectory independent of the reference frame. EqNIO achieves this by learning an equivariant canonical frame aligned, per definition, with the predicted covariance (ellipsoids,right). In test time, the gravity-aligned IMU orientation estimate of the Kalman filter is the reference frame.
+**Figure: Effect of gravity-aligned IMU frame, reference frame in which linear accelerations and angular velocities are defined: Approaches that rely on data augmentation (TLIO,left) produce a different trajectory for different reference frames while strict equivariant approaches (EqNIO,right) yield one trajectory independent of the reference frame. EqNIO achieves this by learning an equivariant canonical frame aligned, per definition, with the predicted covariance (ellipsoids,right). In test time, the gravity-aligned IMU orientation estimate of the Kalman filter is the reference frame.**
 
 This repository contains code that implements video to events conversion as described in Gehrig et al. CVPR'20 and the used dataset.
 **Paper**: [ICLR 2025](https://openreview.net/forum?id=C8jXEugWkq), [arXiv](https://arxiv.org/abs/2408.06321) 
