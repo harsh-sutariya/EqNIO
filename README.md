@@ -164,16 +164,16 @@ We show benefits of our framework applied to this end-to-end Neural Network arch
         * Example training command: ```python3 ronin_resnet.py --mode train --train_list <path-to-train-list> --root_dir 
         <path-to-dataset-folder> --out_dir <path-to-output-folder>  --arch resnet18_eq_frame_o2```.
 
-    ```shell script
-    python3 ronin_resnet.py\
-    --mode train\
-    --train_list lists/list_train.txt\
-    --val_list lists/list_val.txt\
-    --step_size 10\
-    --root_dir ronin_data/all_data\
-    --out_dir output/ronin_o2\
-    --arch resnet18_eq_frame_o2
-    ```
+        ```shell script
+        python3 ronin_resnet.py\
+        --mode train\
+        --train_list lists/list_train.txt\
+        --val_list lists/list_val.txt\
+        --step_size 10\
+        --root_dir ronin_data/all_data\
+        --out_dir output/ronin_o2\
+        --arch resnet18_eq_frame_o2
+        ```
 
         * Example testing command: ```python3 ronin_resnet.py --mode test --test_list <path-to-train-list> --root_dir 
         <path-to-dataset-folder> --out_dir <path-to-output-folder> --model_path <path-to-model-checkpoint> --arch resnet18_eq_frame_o2```.
