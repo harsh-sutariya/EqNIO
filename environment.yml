@@ -1,4 +1,4 @@
-name: pytorch-tlio
+name: eqnio
 channels:
   - conda-forge/label/cf201901
   - numba
