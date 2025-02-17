@@ -22,7 +22,7 @@ booktitle={The Thirteenth International Conference on Learning Representations},
 year={2025},
 url={https://openreview.net/forum?id=C8jXEugWkq}
 }
-s```
+```
 
 
 ---
