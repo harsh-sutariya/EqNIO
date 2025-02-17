@@ -64,7 +64,7 @@ Attitude filter data is not included with the release.
 
 ### Pretrained Models
 
-## Usage
+### Usage
 1. Clone the repository.
 2. (Optional) Download the dataset and the pre-trained models. 
 3. To train and test NN:
@@ -85,15 +85,21 @@ Attitude filter data is not included with the release.
 
 ## RONIN Architecture
 
-original work:
+original work: [website](http://ronin.cs.sfu.ca/)
 
 We show benefits of our framework to this end-to-end Neural Network architecture.
 
-## Data
+### Data
+1. RoNIN Dataset: [Download Here](https://ronin.cs.sfu.ca/) or [here](https://www.frdr-dfdr.ca/repo/dataset/816d1e8c-1fc3-47ff-b8ea-a36ff51d682a)
+\* Note: Only 50\% of the Dataset has been made publicly available. In this work we train on only 50\% of the data.
 
-## Pretrained Models
+2. RIDI Dataset: [Download Here](https://www.dropbox.com/s/9zzaj3h3u4bta23/ridi_data_publish_v2.zip?dl=0)
 
-## Usage
+3. OXOID Dataset: [Download Here](http://deepio.cs.ox.ac.uk/)
+
+### Pretrained Models
+
+### Usage
 1. Clone the repository.
 2. (Optional) Download the dataset and the pre-trained models. 
 3. Position Networks 
