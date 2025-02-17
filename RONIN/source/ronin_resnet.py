@@ -494,15 +494,15 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--train_list', type=str, default='lists/list_train.txt')
     parser.add_argument('--val_list', type=str, default="lists/list_val.txt")
-    parser.add_argument('--test_list', type=str, default="/home/royinakj/oxoid_data/test_processed/unseen/all_ids.txt")
+    parser.add_argument('--test_list', type=str, default=None)
     parser.add_argument('--test_path', type=str, default=None)
-    parser.add_argument('--root_dir', type=str, default="/home/royinakj/oxoid_data/test_processed/unseen", help='Path to data directory')
+    parser.add_argument('--root_dir', type=str, default=None, help='Path to data directory')
     parser.add_argument('--cache_path', type=str, default="output/resnet_train_cache", help='Path to cache folder to store processed data')
-    parser.add_argument('--dataset', type=str, default='ridi', choices=['ronin', 'ridi'])
+    parser.add_argument('--dataset', type=str, default='ronin', choices=['ronin', 'ridi'])
     parser.add_argument('--max_ori_error', type=float, default=20.0)
     parser.add_argument('--step_size', type=int, default=5)
     parser.add_argument('--window_size', type=int, default=200)
-    parser.add_argument('--mode', type=str, default='test', choices=['train', 'test'])
+    parser.add_argument('--mode', type=str, default='train', choices=['train', 'test'])
     parser.add_argument('--lr', type=float, default=1e-04)
     parser.add_argument('--batch_size', type=int, default=128)
     parser.add_argument('--epochs', type=int, default=10)
@@ -513,8 +513,8 @@ if __name__ == '__main__':
     parser.add_argument('--show_plot', action='store_true')
 
     parser.add_argument('--continue_from', type=str, default=None)
-    parser.add_argument('--out_dir', type=str, default="output/test_ronin_pretrained/oxoid")
-    parser.add_argument('--model_path', type=str, default="/home/royinakj/ronin/ronin_resnet/checkpoint_gsn_latest.pt")#"output/ronin_original/checkpoints/checkpoint_82.pt"
+    parser.add_argument('--out_dir', type=str, default=None)
+    parser.add_argument('--model_path', type=str, default=None)#"output/ronin_original/checkpoints/checkpoint_82.pt"
     parser.add_argument('--feature_sigma', type=float, default=0.00001)
     parser.add_argument('--target_sigma', type=float, default=0.00001)
 
