@@ -97,27 +97,27 @@ Attitude filter data is not included with the release.
     * Example training command: ```python3 TLIO-master/src/main_net.py --root_dir <path-to-data-folder> --out_dir <path-to-output-folder> --batch_size 1024 --epochs 50 --arch eq_o2_frame_fullCov_2vec_2deep 
     --mode train```.
 
-```shell script
-python3 TLIO-master/src/main_net.py \
---mode train \
---root_dir local_data/tlio_golden \
---out_dir models/tlio_o2 \
---batch_size 1024\
---epochs 50\
---arch eq_o2_frame_fullCov_2vec_2deep
-```
+    ```shell script
+    python3 TLIO-master/src/main_net.py \
+    --mode train \
+    --root_dir local_data/tlio_golden \
+    --out_dir models/tlio_o2 \
+    --batch_size 1024\
+    --epochs 50\
+    --arch eq_o2_frame_fullCov_2vec_2deep
+    ```
 
     * Example testing command: ```python3 TLIO-master/src/main_net.py --root_dir <path-to-data-folder> --out_dir <path-to-output-folder> --model_path <path-to-checkpoint_best.pt> --arch eq_o2_frame_fullCov_2vec_2deep 
     --mode test```.
 
-```shell script
-python3 TLIO-master/src/main_net.py \
---mode test \
---root_dir local_data/tlio_golden \
---out_dir models/tlio_o2/test \
---model_path models/tlio_o2/checkpoint_best.pt\
---arch eq_o2_frame_fullCov_2vec_2deep
-```
+    ```shell script
+    python3 TLIO-master/src/main_net.py \
+    --mode test \
+    --root_dir local_data/tlio_golden \
+    --out_dir models/tlio_o2/test \
+    --model_path models/tlio_o2/checkpoint_best.pt\
+    --arch eq_o2_frame_fullCov_2vec_2deep
+    ```
 
 4. To run EKF:
     * run ```TLIO-master/src/main_filter.py``` . Please refer to the source code for the full list of command 
@@ -125,13 +125,13 @@ python3 TLIO-master/src/main_net.py \
     * Example command: ```python3 TLIO-master/src/main_filter.py --root_dir <path-to-data-folder> --out_dir <path-to-output-folder> --model_path <path-to-checkpoint_best.pt> 
     --model_param_path <path-to-parameters.json>```.
 
-```shell script
-python3 TLIO-master/src/main_filter.py \
---root_dir local_data/tlio_golden \
---out_dir models/tlio_o2/ekf_test \
---model_path models/tlio_o2/checkpoint_best.pt\
---model_param_path models/tlio_o2/parameters.json
-```
+    ```shell script
+    python3 TLIO-master/src/main_filter.py \
+    --root_dir local_data/tlio_golden \
+    --out_dir models/tlio_o2/ekf_test \
+    --model_path models/tlio_o2/checkpoint_best.pt\
+    --model_param_path models/tlio_o2/parameters.json
+    ```
 
 5. To generate the NN metrics run ```src/analysis/NN_output_metrics.py``` and for EKF metrics run ```src/analysis/EKF_output_metrics.py```.
 ---
@@ -164,29 +164,29 @@ We show benefits of our framework applied to this end-to-end Neural Network arch
         * Example training command: ```python3 ronin_resnet.py --mode train --train_list <path-to-train-list> --root_dir 
         <path-to-dataset-folder> --out_dir <path-to-output-folder>  --arch resnet18_eq_frame_o2```.
 
-```shell script
-python3 ronin_resnet.py\
---mode train\
---train_list lists/list_train.txt\
---val_list lists/list_val.txt\
---step_size 10\
---root_dir ronin_data/all_data\
---out_dir output/ronin_o2\
---arch resnet18_eq_frame_o2
-```
+    ```shell script
+    python3 ronin_resnet.py\
+    --mode train\
+    --train_list lists/list_train.txt\
+    --val_list lists/list_val.txt\
+    --step_size 10\
+    --root_dir ronin_data/all_data\
+    --out_dir output/ronin_o2\
+    --arch resnet18_eq_frame_o2
+    ```
 
         * Example testing command: ```python3 ronin_resnet.py --mode test --test_list <path-to-train-list> --root_dir 
         <path-to-dataset-folder> --out_dir <path-to-output-folder> --model_path <path-to-model-checkpoint> --arch resnet18_eq_frame_o2```.
 
-```shell script
-python3 ronin_resnet.py\
---mode test\
---test_list lists/list_test_unseen.txt\
---root_dir ronin_data/all_data\
---out_dir output/ronin_o2/test_unseen\
---arch resnet18_eq_frame_o2
---model_path output/ronin_o2/checkpoints/checkpoint_38.pt
-```
+    ```shell script
+    python3 ronin_resnet.py\
+    --mode test\
+    --test_list lists/list_test_unseen.txt\
+    --root_dir ronin_data/all_data\
+    --out_dir output/ronin_o2/test_unseen\
+    --arch resnet18_eq_frame_o2
+    --model_path output/ronin_o2/checkpoints/checkpoint_38.pt
+    ```
 
 
 
