@@ -63,6 +63,8 @@ Attitude filter data is not included with the release.
 2. Aria Dataset: [Download Here](https://www.projectaria.com/datasets/aea/)
 
 ### Pretrained Models
+1. TLIO + SO(2) Eq. Frame: [Download Here](https://drive.google.com/file/d/1BPgDNsJKVlBdW0rSj6En9KIERkxwbx00/view?usp=drive_link)
+2. TLIO + O(2) Eq. Frame: [Download Here](https://drive.google.com/file/d/1_3-KD2D1tgIkfkN3dXYoN_4Bt7e76aZl/view?usp=drive_link)
 
 ### Usage
 1. Clone the repository.
@@ -87,7 +89,7 @@ Attitude filter data is not included with the release.
 
 original work: [website](http://ronin.cs.sfu.ca/)
 
-We show benefits of our framework to this end-to-end Neural Network architecture.
+We show benefits of our framework applied to this end-to-end Neural Network architecture.
 
 ### Data
 1. RoNIN Dataset: [Download Here](https://ronin.cs.sfu.ca/) or [here](https://www.frdr-dfdr.ca/repo/dataset/816d1e8c-1fc3-47ff-b8ea-a36ff51d682a)
@@ -98,6 +100,8 @@ We show benefits of our framework to this end-to-end Neural Network architecture
 3. OXOID Dataset: [Download Here](http://deepio.cs.ox.ac.uk/)
 
 ### Pretrained Models
+1. RONIN + 50\% data + SO(2) Eq. Frame: [Download Here](https://drive.google.com/file/d/1xG6Q1CQYIXiQAzpmEUMDfWAqurFbKdlP/view?usp=drive_link)
+2. RONIN + 50\% data + O(2) Eq. Frame: [Download Here](https://drive.google.com/file/d/1VuSFXbBRYVRUpMmuHm_2wjskuaZGCTiw/view?usp=drive_link)
 
 ### Usage
 1. Clone the repository.
