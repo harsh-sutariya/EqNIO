@@ -1,7 +1,7 @@
-# EqNIO
+# EqNIO: Subequivariant Neural Inertial Odometry (ICLR 2025)
 
 ![Teaser](images/Picture1.png)
-**Figure: Effect of gravity-aligned IMU frame, reference frame in which linear accelerations and angular velocities are defined: Approaches that rely on data augmentation (TLIO,left) produce a different trajectory for different reference frames while strict equivariant approaches (EqNIO,right) yield one trajectory independent of the reference frame. EqNIO achieves this by learning an equivariant canonical frame aligned, per definition, with the predicted covariance (ellipsoids,right). In test time, the gravity-aligned IMU orientation estimate of the Kalman filter is the reference frame.**
+**Figure: Predicted trajectories and covariance ellipsoids from TLIO (left) and subequivariant EqNIO (ours) (right) for 5 identical trajectories with different IMU frames. The de-rotated trajectories and ellipsoids of TLIO demonstrate significant inconsistency, while the ones by EqNIO(ours) are perfectly aligned.**
 
 
 
@@ -14,7 +14,8 @@ Please cite the following paper is you use the code or paper:
 
 Royina Karegoudra Jayanth*, Yinshuang Xu*, Daniel Gehrig, Ziyun Wang, Evangelos Chatzipantazis, Kostas Daniilidis,"EqNIO: Subequivariant Neural Inertial Odometry", The Thirteenth International Conference on Learning Representations (ICLR), 2025.
 
-```@inproceedings{
+```shell script
+@inproceedings{
 jayanth2025eqnio,
 title={Eq{NIO}: Subequivariant Neural Inertial Odometry},
 author={Royina Karegoudra Jayanth and Yinshuang Xu and Daniel Gehrig and Ziyun Wang and Evangelos Chatzipantazis and Kostas Daniilidis},
@@ -24,6 +25,18 @@ url={https://openreview.net/forum?id=C8jXEugWkq}
 }
 ```
 
+---
+## Cloning the repository
+Clone the repo
+```shell script
+git clone https://github.com/RoyinaJayanth/EqNIO.git
+```
+
+or 
+
+```shell script
+git clone git@github.com:RoyinaJayanth/EqNIO.git --recursive
+```
 
 ---
 ## Installation
@@ -89,9 +102,9 @@ Attitude filter data is not included with the release.
 2. TLIO + O(2) Eq. Frame: [Download Here](https://drive.google.com/file/d/1_3-KD2D1tgIkfkN3dXYoN_4Bt7e76aZl/view?usp=drive_link)
 
 ### Usage
-1. Clone the repository.
-2. (Optional) Download the dataset and the pre-trained models. 
-3. To train and test NN:
+
+1. (Optional) Download the dataset and the pre-trained models. 
+2. To train and test NN:
     * run ```TLIO-master/src/main_net.py``` with mode argument. Please refer to the source code for the full list of command 
     line arguments. 
     * Example training command: ```python3 TLIO-master/src/main_net.py --root_dir <path-to-data-folder> --out_dir <path-to-output-folder> --batch_size 1024 --epochs 50 --arch eq_o2_frame_fullCov_2vec_2deep 
@@ -119,7 +132,7 @@ Attitude filter data is not included with the release.
     --arch eq_o2_frame_fullCov_2vec_2deep
     ```
 
-4. To run EKF:
+3. To run EKF:
     * run ```TLIO-master/src/main_filter.py``` . Please refer to the source code for the full list of command 
     line arguments. 
     * Example command: ```python3 TLIO-master/src/main_filter.py --root_dir <path-to-data-folder> --out_dir <path-to-output-folder> --model_path <path-to-checkpoint_best.pt> 
@@ -133,7 +146,7 @@ Attitude filter data is not included with the release.
     --model_param_path models/tlio_o2/parameters.json
     ```
 
-5. To generate the NN metrics run ```src/analysis/NN_output_metrics.py``` and for EKF metrics run ```src/analysis/EKF_output_metrics.py```.
+4. To generate the NN metrics run ```src/analysis/NN_output_metrics.py``` and for EKF metrics run ```src/analysis/EKF_output_metrics.py```.
 ---
 
 ## RONIN Architecture
@@ -155,9 +168,9 @@ We show benefits of our framework applied to this end-to-end Neural Network arch
 2. RONIN + 50\% data + O(2) Eq. Frame: [Download Here](https://drive.google.com/file/d/1VuSFXbBRYVRUpMmuHm_2wjskuaZGCTiw/view?usp=drive_link)
 
 ### Usage
-1. Clone the repository.
-2. (Optional) Download the dataset and the pre-trained models. 
-3. Position Networks 
+
+1. (Optional) Download the dataset and the pre-trained models. 
+2. Position Networks 
     1. To train/test **RoNIN ResNet** model:
         * run ```source/ronin_resnet.py``` with mode argument. Please refer to the source code for the full list of command 
         line arguments. 
