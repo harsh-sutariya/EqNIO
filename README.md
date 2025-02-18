@@ -5,12 +5,10 @@
 
 
 
-This repository contains code that implements subequivariant framework as described in Jayanth et al. ICLR'25 and the used dataset.
+This repository contains code that implements the subequivariant framework described in Jayanth et al. ICLR'25, and the used dataset.
 **Paper**: [ICLR 2025](https://openreview.net/forum?id=C8jXEugWkq), [arXiv](https://arxiv.org/abs/2408.06321) 
 
-
-
-Please cite the following paper is you use the code or paper:  
+Please cite the following paper if you use the code or paper:  
 
 Royina Karegoudra Jayanth*, Yinshuang Xu*, Daniel Gehrig, Ziyun Wang, Evangelos Chatzipantazis, Kostas Daniilidis,"EqNIO: Subequivariant Neural Inertial Odometry", The Thirteenth International Conference on Learning Representations (ICLR), 2025.
 
