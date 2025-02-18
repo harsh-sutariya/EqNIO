@@ -110,14 +110,15 @@ python3 TLIO-master/src/main_net.py --mode train \
                                     --batch_size 1024 \
                                     --epochs 50 \
                                     --arch eq_o2_frame_fullCov_2vec_2deep
-For testing run the following 
+```
+For testing run the following
 ```bash
 python3 TLIO-master/src/main_net.py --mode test \
                                     --root_dir local_data/tlio_golden \
                                     --out_dir models/tlio_o2/test \
                                     --model_path models/tlio_o2/checkpoint_best.pt\
                                     --arch eq_o2_frame_fullCov_2vec_2deep
-    ```
+```
 ### Running the EKF
 To run the EKF run ```TLIO-master/src/main_filter.py``` . Please refer to the source code for the full list of command line arguments. 
     
@@ -164,6 +165,7 @@ python3 ronin_resnet.py --mode train \
                         --arch resnet18_eq_frame_o2
 ```
 and for testing run
+
 ```bash
 python3 ronin_resnet.py --mode test \
                         --test_list lists/list_test_unseen.txt \
