@@ -15,8 +15,7 @@ Please cite the following paper is you use the code or paper:
 Royina Karegoudra Jayanth*, Yinshuang Xu*, Daniel Gehrig, Ziyun Wang, Evangelos Chatzipantazis, Kostas Daniilidis,"EqNIO: Subequivariant Neural Inertial Odometry", The Thirteenth International Conference on Learning Representations (ICLR), 2025.
 
 ```bibtex
-@InProceedings{
-   jayanth25iclr,
+@InProceedings{Jayanth25iclr,
    title      = {Eq{NIO}: Subequivariant Neural Inertial Odometry},
    author     = {Royina Karegoudra Jayanth and Yinshuang Xu and Daniel Gehrig and Ziyun Wang and Evangelos Chatzipantazis and Kostas Daniilidis},
    booktitle  = {The Thirteenth International Conference on Learning Representations},
