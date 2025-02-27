@@ -1,7 +1,7 @@
 # EqNIO: Subequivariant Neural Inertial Odometry (ICLR 2025)
 
 ![Teaser](images/Picture1.png)
-**Figure: Predicted trajectories and covariance ellipsoids from TLIO (left) and subequivariant EqNIO (ours) (right) for 5 identical trajectories with different IMU frames. The de-rotated trajectories and ellipsoids of TLIO demonstrate significant inconsistency, while the ones by EqNIO(ours) are perfectly aligned.**
+**Figure: Predicted trajectories and covariance ellipsoids from TLIO (left) and subequivariant EqNIO (ours) (right) for 5 identical trajectories with different IMU frames. The de-rotated trajectories and covariance ellipsoids of TLIO demonstrate significant inconsistency, while the ones by EqNIO(ours) are perfectly aligned.**
 
 
 
@@ -10,12 +10,12 @@ This repository contains code that implements the subequivariant framework descr
 
 Please cite the following paper if you use the code or paper:  
 
-Royina Karegoudra Jayanth*, Yinshuang Xu*, Ziyun Wang, Evangelos Chatzipantazis, [Daniel Gehrig](https://danielgehrig18.github.io/), Kostas Daniilidis, "EqNIO: Subequivariant Neural Inertial Odometry", The Thirteenth International Conference on Learning Representations (ICLR), 2025. * denotes equal contribution.
+Royina Karegoudra Jayanth*, Yinshuang Xu*, Ziyun Wang, Evangelos Chatzipantazis, Kostas Daniilidis, [Daniel Gehrig](https://danielgehrig18.github.io/), "EqNIO: Subequivariant Neural Inertial Odometry", The Thirteenth International Conference on Learning Representations (ICLR), 2025. * denotes equal contribution.
 
 ```bibtex
 @InProceedings{Jayanth25iclr,
    title      = {Eq{NIO}: Subequivariant Neural Inertial Odometry},
-   author     = {Royina Karegoudra Jayanth* and Yinshuang Xu* and Ziyun Wang and Evangelos Chatzipantazis and Daniel Gehrig and Kostas Daniilidis},
+   author     = {Royina Karegoudra Jayanth* and Yinshuang Xu* and Ziyun Wang and Evangelos Chatzipantazis and Kostas Daniilidis and Daniel Gehrig},
    booktitle  = {The Thirteenth International Conference on Learning Representations},
    year       = {2025},
    url        = {https://openreview.net/forum?id=C8jXEugWkq}
