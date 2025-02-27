@@ -129,7 +129,19 @@ python3 TLIO-master/src/main_filter.py --root_dir local_data/tlio_golden \
                                        --model_param_path models/tlio_o2/parameters.json
 ```
 
-4. To generate the NN metrics run ```src/analysis/NN_output_metrics.py``` and for EKF metrics run ```src/analysis/EKF_output_metrics.py```.
+4. To generate the NN metrics run ```src/analysis/NN_output_metrics.py``` 
+
+```bash
+python3 TLIO-master/src/analysis/NN_output_metrics.py --files models/tlio_o2/test\
+                                       --output_file_name tlio_nn_results 
+```
+and for EKF metrics run ```src/analysis/EKF_output_metrics.py```
+
+```bash
+python3 TLIO-master/src/analysis/EKF_output_metrics.py --files models/tlio_o2/ekf_test\
+                                       --ground_truth_path local_data/tlio_golden\
+                                       --output_file_name tlio_ekf_results 
+```
 ---
 
 ## RONIN Architecture

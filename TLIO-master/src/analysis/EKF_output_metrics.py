@@ -59,111 +59,135 @@ def compute_rpe(rpe_ns, ps, ps_gt, yaw, yaw_gt):
     relative_yaw_rmse = np.sqrt(np.mean(relative_yaw_errors ** 2))
     return relative_yaw_rmse#rpe_rmse, rpe_rmse_z, relative_yaw_rmse
 
-exp_list = ['TLIO-master/output/resnet_tlio_local_gravity_aligned_50epochs/ekf_test_rot_aug'
-            ]
-## for the table
-result = []
-for exp in exp_list:
-    print('results for '+exp)
-    delta = int(60*200) ## rte metric same as ronin
-    # path = 'TLIO-master/output/'
-    dir_path = exp
-    ate_list = []
-    rte_list = []
-    drift_list = []
-    aye_list = []
-    yaw_drift_list = []
-    min_ate = 0
-    min_ate_folder =''
-    start_idx = 2000 #2s
-    if 'rnin-vio' in dir_path:
-        start_idx = 0
-    count_file=0
-    for folder in  os.listdir(dir_path):
-        
-        if count_file%25==0:
-            print(count_file, folder)
-        count_file += 1
-        if os.path.isfile(dir_path+'/'+folder):
-            continue
-        else:
-            if os.path.exists(dir_path+'/'+folder+'/not_vio_state.txt'):
-                kf_data = np.loadtxt(dir_path+'/'+folder+'/not_vio_state.txt', delimiter=",")
-                gt_path = 'aria_data/downsampled_w_i/'+folder+'/imu0_resampled.npy'
-                # gt_path = 'TLIO-master/local_data/tlio_golden/'+folder+'/imu0_resampled.npy'
-                # print(folder)
-                gt_data = np.load(gt_path)
 
-                kf_ts = kf_data[start_idx:, 27]
-                kf_p = kf_data[start_idx:, 12:15]
+def calculate_ekf_metrics(exp_list,gt_path_main,output_file_name):
+    # exp_list = ['TLIO-master/output/resnet_tlio_local_gravity_aligned_50epochs/ekf_test_rot_aug'
+    #             ]
+    ## for the table
+    result = []
+    for exp in exp_list:
+        print('results for '+exp)
+        delta = int(60*200) ## rte metric same as ronin
+        # path = 'TLIO-master/output/'
+        dir_path = exp
+        ate_list = []
+        rte_list = []
+        drift_list = []
+        aye_list = []
+        yaw_drift_list = []
+        min_ate = 0
+        min_ate_folder =''
+        start_idx = 2000 #2s
+        if 'rnin-vio' in dir_path:
+            start_idx = 0
+        count_file=0
+        for folder in  os.listdir(dir_path):
+            
+            if count_file%25==0:
+                print(count_file, folder)
+            count_file += 1
+            if os.path.isfile(dir_path+'/'+folder):
+                continue
+            else:
+                if os.path.exists(dir_path+'/'+folder+'/not_vio_state.txt'):
+                    kf_data = np.loadtxt(dir_path+'/'+folder+'/not_vio_state.txt', delimiter=",")
+                    # gt_path = 'aria_data/downsampled_w_i/'+folder+'/imu0_resampled.npy'
+                    # gt_path = 'TLIO-master/local_data/tlio_golden/'+folder+'/imu0_resampled.npy'
+                    gt_path = gt_path_main+folder+'/imu0_resampled.npy'
+                    # print(folder)
+                    gt_data = np.load(gt_path)
 
-                gt_ts = gt_data[:,0]*1e-6
-                gt_p = gt_data[:,-6:-3]
+                    kf_ts = kf_data[start_idx:, 27]
+                    kf_p = kf_data[start_idx:, 12:15]
 
-                ## reading yaw data
-                R_init = kf_data[start_idx, :9].reshape(-1, 3, 3)
-                r_init = Rotation.from_matrix(R_init)
-                Rs = kf_data[start_idx:, :9].reshape(-1, 3, 3)
-                rs = Rotation.from_matrix(Rs)
-                euls = rs.as_euler("xyz", degrees=True)
+                    gt_ts = gt_data[:,0]*1e-6
+                    gt_p = gt_data[:,-6:-3]
 
-                vio_rq = gt_data[:,-10:-6]
-                vio_r = Rotation.from_quat(vio_rq)
-                vio_euls = vio_r.as_euler("xyz", degrees=True)
-                vio_uw_euls = unwrap_rpy(vio_euls)
+                    ## reading yaw data
+                    R_init = kf_data[start_idx, :9].reshape(-1, 3, 3)
+                    r_init = Rotation.from_matrix(R_init)
+                    Rs = kf_data[start_idx:, :9].reshape(-1, 3, 3)
+                    rs = Rotation.from_matrix(Rs)
+                    euls = rs.as_euler("xyz", degrees=True)
 
-                if gt_ts[0] > kf_ts[0]:
-                    gt_ts = np.insert(gt_ts, 0, kf_ts[0])
-                    gt_p = np.concatenate([gt_p[0].reshape(1, 3), gt_p], axis=0)
-                    vio_uw_euls = np.concatenate(
-                        [vio_uw_euls[0].reshape(1, 3), vio_uw_euls], axis=0
-                    )
-                if gt_ts[-1] < kf_ts[-1]:
-                    gt_ts = np.insert(gt_ts, -1, kf_ts[-1])
-                    gt_p = np.concatenate([gt_p, gt_p[-1].reshape(1, 3)], axis=0)
-                    vio_uw_euls = np.concatenate(
-                        [vio_uw_euls, vio_uw_euls[-1].reshape(1, 3)], axis=0
-                    )
+                    vio_rq = gt_data[:,-10:-6]
+                    vio_r = Rotation.from_quat(vio_rq)
+                    vio_euls = vio_r.as_euler("xyz", degrees=True)
+                    vio_uw_euls = unwrap_rpy(vio_euls)
 
-                inter_gt_p = interp1d(gt_ts, gt_p, axis=0)(kf_ts)
-                ate = np.sqrt(np.mean(np.linalg.norm(kf_p - inter_gt_p, axis=1) ** 2))
-                
-                ate_list.append(ate)
-                if ate>min_ate:
-                    min_ate = ate
-                    min_ate_folder = folder
-                # print(np.loadtxt(dir_path+'/'+folder+'/net_outputs.txt', delimiter=",").shape)
+                    if gt_ts[0] > kf_ts[0]:
+                        gt_ts = np.insert(gt_ts, 0, kf_ts[0])
+                        gt_p = np.concatenate([gt_p[0].reshape(1, 3), gt_p], axis=0)
+                        vio_uw_euls = np.concatenate(
+                            [vio_uw_euls[0].reshape(1, 3), vio_uw_euls], axis=0
+                        )
+                    if gt_ts[-1] < kf_ts[-1]:
+                        gt_ts = np.insert(gt_ts, -1, kf_ts[-1])
+                        gt_p = np.concatenate([gt_p, gt_p[-1].reshape(1, 3)], axis=0)
+                        vio_uw_euls = np.concatenate(
+                            [vio_uw_euls, vio_uw_euls[-1].reshape(1, 3)], axis=0
+                        )
 
-                # rte calculation
-                re_est = inter_gt_p[1:-1-delta:delta] - inter_gt_p[delta:-1:delta]
-                re_gt = kf_p[1:-1-delta:delta] - kf_p[delta:-1:delta]
-
-                rte_list.append(np.sqrt(np.mean(np.linalg.norm(re_gt - re_est, axis=1)** 2)))
-
-
-                ## drift % calculation
-                norm_gt = np.linalg.norm( kf_p[1:] - kf_p[:-1], axis=1)
-                drift_list.append((np.linalg.norm(kf_p[-1] - inter_gt_p[-1])/np.sum(norm_gt))*100)
-
-
+                    inter_gt_p = interp1d(gt_ts, gt_p, axis=0)(kf_ts)
+                    ate = np.sqrt(np.mean(np.linalg.norm(kf_p - inter_gt_p, axis=1) ** 2))
                     
-                vio_uw_euls_interp = interp1d(gt_ts, vio_uw_euls, axis=0)(kf_ts)
-                vio_euls = wrap_rpy(vio_uw_euls_interp)
+                    ate_list.append(ate)
+                    if ate>min_ate:
+                        min_ate = ate
+                        min_ate_folder = folder
+                    # print(np.loadtxt(dir_path+'/'+folder+'/net_outputs.txt', delimiter=",").shape)
 
-                ## AYE
-                filter_heading_error = wrap_rpy(euls - vio_euls)[:, 2]
-                aye_list.append(np.sqrt(np.nansum(filter_heading_error ** 2)/ np.count_nonzero(~(np.isnan(filter_heading_error)))))
+                    # rte calculation
+                    re_est = inter_gt_p[1:-1-delta:delta] - inter_gt_p[delta:-1:delta]
+                    re_gt = kf_p[1:-1-delta:delta] - kf_p[delta:-1:delta]
 
-                ## Yaw drift
-                ts = kf_ts - kf_ts[0]
-                euls[:, 2] = euls[:, 2] - (euls[0, 2] - vio_euls[0, 2])
-                euls = wrap_rpy(euls)
-                angular_drift_filter = np.linalg.norm(euls[-1, 2] - vio_euls[-1, 2])
-                yaw_drift_list.append(angular_drift_filter / ts.max() * 3600 * 1e-3) # because its in ms
+                    rte_list.append(np.sqrt(np.mean(np.linalg.norm(re_gt - re_est, axis=1)** 2)))
 
-    result.append({'exp' :dir_path,'ate':np.array(ate_list).mean(),'rte':np.array(rte_list).mean(),
-                   'drift':np.array(drift_list).mean(),'aye':np.array(aye_list).mean(),'yaw_drift':np.array(yaw_drift_list).mean()})
 
-import pandas as pd
-result_df = pd.DataFrame(result) 
-result_df.to_csv('tlio_ekf_tlio.csv')
+                    ## drift % calculation
+                    norm_gt = np.linalg.norm( kf_p[1:] - kf_p[:-1], axis=1)
+                    drift_list.append((np.linalg.norm(kf_p[-1] - inter_gt_p[-1])/np.sum(norm_gt))*100)
+
+
+                        
+                    vio_uw_euls_interp = interp1d(gt_ts, vio_uw_euls, axis=0)(kf_ts)
+                    vio_euls = wrap_rpy(vio_uw_euls_interp)
+
+                    ## AYE
+                    filter_heading_error = wrap_rpy(euls - vio_euls)[:, 2]
+                    aye_list.append(np.sqrt(np.nansum(filter_heading_error ** 2)/ np.count_nonzero(~(np.isnan(filter_heading_error)))))
+
+                    ## Yaw drift
+                    ts = kf_ts - kf_ts[0]
+                    euls[:, 2] = euls[:, 2] - (euls[0, 2] - vio_euls[0, 2])
+                    euls = wrap_rpy(euls)
+                    angular_drift_filter = np.linalg.norm(euls[-1, 2] - vio_euls[-1, 2])
+                    yaw_drift_list.append(angular_drift_filter / ts.max() * 3600 * 1e-3) # because its in ms
+
+        result.append({'exp' :dir_path,'ate':np.array(ate_list).mean(),'rte':np.array(rte_list).mean(),
+                    'drift':np.array(drift_list).mean(),'aye':np.array(aye_list).mean(),'yaw_drift':np.array(yaw_drift_list).mean()})
+
+    import pandas as pd
+    result_df = pd.DataFrame(result) 
+    result_df.to_csv(output_file_name+'.csv')
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--files",
+        type=str,
+        action='append',  # Allows multiple uses of the argument
+        # required=True,
+        help="A file to process (can be used multiple times)",
+        default=['/home/royinakj/TLIO-master/output/resnet_tlio_local_gravity_aligned_50epochs/ekf_output']
+    )
+    parser.add_argument("--ground_truth_path", type=str, default="/home/royinakj/TLIO-master/local_data/tlio_golden/")
+    parser.add_argument("--output_file_name", type=str, default="tlio_aug")
+
+    args = parser.parse_args()
+
+    # exp_list,gt_path,output_file_name
+    calculate_ekf_metrics(args.files, args.ground_truth_path, args.output_file_name)
+    
