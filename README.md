@@ -128,8 +128,8 @@ python3 TLIO-master/src/main_filter.py --root_dir local_data/tlio_golden \
                                        --model_path models/tlio_o2/checkpoint_best.pt \
                                        --model_param_path models/tlio_o2/parameters.json
 ```
-
-4. To generate the NN metrics run ```src/analysis/NN_output_metrics.py``` 
+### Calculating metrics
+To generate the NN metrics run ```src/analysis/NN_output_metrics.py``` 
 
 ```bash
 python3 TLIO-master/src/analysis/NN_output_metrics.py --files models/tlio_o2/test\
