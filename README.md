@@ -10,7 +10,7 @@ This repository contains code that implements the subequivariant framework descr
 
 Please cite the following paper if you use the code or paper:  
 
-Royina Karegoudra Jayanth*, Yinshuang Xu*, Ziyun Wang, Evangelos Chatzipantazis, Kostas Daniilidis, [Daniel Gehrig](https://danielgehrig18.github.io/), "EqNIO: Subequivariant Neural Inertial Odometry", The Thirteenth International Conference on Learning Representations (ICLR), 2025. * denotes equal contribution.
+Royina Karegoudra Jayanth*, Yinshuang Xu*, Ziyun Wang, Evangelos Chatzipantazis, Kostas Daniilidis †, [Daniel Gehrig](https://danielgehrig18.github.io/) †, "EqNIO: Subequivariant Neural Inertial Odometry", The Thirteenth International Conference on Learning Representations (ICLR), 2025. * denotes equal contribution. † denotes equal advising.
 
 ```bibtex
 @InProceedings{Jayanth25iclr,
