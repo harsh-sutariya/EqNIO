@@ -6,7 +6,7 @@
 
 
 This repository contains code that implements the subequivariant framework described in Jayanth et al. ICLR'25, and the used dataset.
-**Paper**: [ICLR 2025](https://openreview.net/forum?id=C8jXEugWkq), [arXiv](https://arxiv.org/abs/2408.06321) 
+**Paper**: [ICLR 2025](https://openreview.net/forum?id=C8jXEugWkq), [arXiv](https://arxiv.org/abs/2408.06321), [ICLR 2025 Project Page](https://iclr.cc/virtual/2025/poster/30531)
 
 Please cite the following paper if you use the code or paper:  
 
