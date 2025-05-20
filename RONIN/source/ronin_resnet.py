@@ -21,6 +21,7 @@ from model_resnet1d_eq_frame_o2 import *
 from tqdm import tqdm
 import copy
 import time
+import wandb
 
 _input_channel, _output_channel = 6, 2
 _fc_config = {'fc_dim': 512, 'in_dim': 7, 'dropout': 0.5, 'trans_planes': 128}
@@ -136,13 +137,20 @@ def run_test(network, data_loader, device, arch, eval_mode=True):
     return targets_all, preds_all, frames_all
 
 
-def add_summary(writer, loss, step, mode):
+def add_summary(writer, loss, step, mode, use_wandb=False):
     names = '{0}_loss/loss_x,{0}_loss/loss_y,{0}_loss/loss_z,{0}_loss/loss_sin,{0}_loss/loss_cos'.format(
         mode).split(',')
 
     for i in range(loss.shape[0]):
         writer.add_scalar(names[i], loss[i], step)
     writer.add_scalar('{}_loss/avg'.format(mode), np.mean(loss), step)
+    
+    if use_wandb:
+        wandb_metrics = {}
+        for i in range(loss.shape[0]):
+            wandb_metrics[names[i]] = loss[i]
+        wandb_metrics['{}_loss/avg'.format(mode)] = np.mean(loss)
+        wandb.log(wandb_metrics, step=step)
 
 
 def get_dataset(root_dir, data_list, args, **kwargs):
@@ -184,6 +192,11 @@ def get_dataset_from_list(root_dir, list_path, args, **kwargs):
 
 
 def train(args, **kwargs):
+    # Initialize wandb if enabled
+    if args.use_wandb:
+        wandb.init(project="ronin", name=args.wandb_run_name if args.wandb_run_name else None, 
+                  config=vars(args))
+        
     # Loading data
     start_t = time.time()
     train_dataset = get_dataset_from_list(args.root_dir, args.train_list, args, mode='train')
@@ -249,7 +262,9 @@ def train(args, **kwargs):
     print('-------------------------')
     print('Init: average loss: {}/{:.6f}'.format(init_train_loss, train_losses_all[-1]))
     if summary_writer is not None:
-        add_summary(summary_writer, init_train_loss, 0, 'train')
+        add_summary(summary_writer, init_train_loss, 0, 'train', args.use_wandb)
+        if args.use_wandb:
+            wandb.log({'train/loss_avg': np.mean(init_train_loss)}, step=0)
 
     if val_loader is not None:
         init_val_targ, init_val_pred, init_val_frames = run_test(network, val_loader, device, args.arch)
@@ -257,10 +272,12 @@ def train(args, **kwargs):
         val_losses_all.append(np.mean(init_val_loss))
         print('Validation loss: {}/{:.6f}'.format(init_val_loss, val_losses_all[-1]))
         if summary_writer is not None:
-            add_summary(summary_writer, init_val_loss, 0, 'val')
+            add_summary(summary_writer, init_val_loss, 0, 'val', args.use_wandb)
+            if args.use_wandb:
+                wandb.log({'val/loss_avg': np.mean(init_val_loss)}, step=0)
 
     try:
-        for epoch in tqdm(range(start_epoch, 1)):#args.epochs
+        for epoch in tqdm(range(start_epoch, args.epochs)):
             start_t = time.time()
             network.train()
             train_outs, train_targets = [], []
@@ -294,8 +311,13 @@ def train(args, **kwargs):
             train_losses_all.append(np.average(train_losses))
 
             if summary_writer is not None:
-                add_summary(summary_writer, train_losses, epoch + 1, 'train')
+                add_summary(summary_writer, train_losses, epoch + 1, 'train', args.use_wandb)
                 summary_writer.add_scalar('optimizer/lr', optimizer.param_groups[0]['lr'], epoch)
+                if args.use_wandb:
+                    wandb.log({
+                        'train/loss_avg': np.average(train_losses),
+                        'optimizer/lr': optimizer.param_groups[0]['lr']
+                    }, step=epoch + 1)
 
             if val_loader is not None:
                 network.eval()
@@ -305,7 +327,9 @@ def train(args, **kwargs):
                 print('Validation loss: {}/{:.6f}'.format(val_losses, avg_loss))
                 scheduler.step(avg_loss)
                 if summary_writer is not None:
-                    add_summary(summary_writer, val_losses, epoch + 1, 'val')
+                    add_summary(summary_writer, val_losses, epoch + 1, 'val', args.use_wandb)
+                    if args.use_wandb:
+                        wandb.log({'val/loss_avg': avg_loss}, step=epoch + 1)
                 val_losses_all.append(avg_loss)
                 if avg_loss < best_val_loss:
                     best_val_loss = avg_loss
@@ -315,6 +339,10 @@ def train(args, **kwargs):
                                     'epoch': epoch,
                                     'optimizer_state_dict': optimizer.state_dict()}, model_path)
                         print('Model saved to ', model_path)
+                        if args.use_wandb:
+                            wandb.save(model_path)
+                            wandb.run.summary['best_val_loss'] = best_val_loss
+                            wandb.run.summary['best_epoch'] = epoch
             else:
                 if args.out_dir is not None and osp.isdir(args.out_dir):
                     model_path = osp.join(args.out_dir, 'checkpoints', 'checkpoint_%d.pt' % epoch)
@@ -322,6 +350,8 @@ def train(args, **kwargs):
                                 'epoch': epoch,
                                 'optimizer_state_dict': optimizer.state_dict()}, model_path)
                     print('Model saved to ', model_path)
+                    if args.use_wandb:
+                        wandb.save(model_path)
 
             total_epoch = epoch
 
@@ -336,6 +366,12 @@ def train(args, **kwargs):
                     'optimizer_state_dict': optimizer.state_dict(),
                     'epoch': total_epoch}, model_path)
         print('Checkpoint saved to ', model_path)
+        if args.use_wandb:
+            wandb.save(model_path)
+            
+    # Close wandb run if it was used
+    if args.use_wandb:
+        wandb.finish()
 
     return train_losses_all, val_losses_all
 
@@ -357,6 +393,11 @@ def recon_traj_with_preds(dataset, preds, seq_id=0, **kwargs):
 
 
 def test_sequence(args):
+    # Initialize wandb for test mode if enabled
+    if args.use_wandb:
+        wandb.init(project="ronin", name=args.wandb_run_name if args.wandb_run_name else None,
+                  config=vars(args))
+        
     if args.test_path is not None:
         if args.test_path[-1] == '/':
             args.test_path = args.test_path[:-1]
@@ -418,6 +459,22 @@ def test_sequence(args):
         pos_cum_error = np.linalg.norm(pos_pred[:,:2] - pos_gt[:,:2], axis=1)
 
         print('Sequence {}, loss {} / {}, ate {:.6f}, rte {:.6f}'.format(data, losses, np.mean(losses), ate, rte))
+        
+        # Log test results to wandb if enabled
+        if args.use_wandb:
+            wandb_test_metrics = {
+                f'test/{data}/ate': ate,
+                f'test/{data}/rte': rte,
+                f'test/{data}/avg_loss': np.mean(losses),
+            }
+            for i, loss_val in enumerate(losses):
+                if i == 0:
+                    wandb_test_metrics[f'test/{data}/loss_vx'] = loss_val
+                elif i == 1:
+                    wandb_test_metrics[f'test/{data}/loss_vy'] = loss_val
+                elif i == 2:
+                    wandb_test_metrics[f'test/{data}/loss_vz'] = loss_val
+            wandb.log(wandb_test_metrics)
 
         # Plot figures
         kp = preds.shape[1]
@@ -443,6 +500,10 @@ def test_sequence(args):
             plt.legend(['Predicted', 'Ground truth'])
             plt.title('{}, error: {:.6f}'.format(targ_names[i], losses[i]))
         plt.tight_layout()
+        
+        # Log trajectory figure to wandb if enabled
+        if args.use_wandb:
+            wandb.log({f"trajectory/{data}": wandb.Image(plt)})
 
         if args.show_plot:
             plt.show()
@@ -476,6 +537,16 @@ def test_sequence(args):
                 for j in range(losses_seq.shape[1]):
                     f.write('{:.6f},'.format(losses_seq[i][j]))
                 f.write('{:.6f},{:6f},{:.6f}\n'.format(losses_avg[i], ate_all[i], rte_all[i]))
+
+    # Log overall test results to wandb
+    if args.use_wandb:
+        wandb.log({
+            'test/mean_ate': np.mean(ate_all),
+            'test/mean_rte': np.mean(rte_all),
+            'test/median_ate': np.median(ate_all),
+            'test/median_rte': np.median(rte_all)
+        })
+        wandb.finish()
 
     print('----------\nOverall loss: {}/{}, avg ATE:{}, avg RTE:{}, median ATE:{}, median RTE:{}'.format(
         np.average(losses_seq, axis=0), np.average(losses_avg), np.mean(ate_all), np.mean(rte_all), np.median(ate_all), np.median(rte_all)))
@@ -511,6 +582,8 @@ if __name__ == '__main__':
     parser.add_argument('--run_ekf', action='store_true')
     parser.add_argument('--fast_test', action='store_true')
     parser.add_argument('--show_plot', action='store_true')
+    parser.add_argument('--use_wandb', action='store_true', help='Enable Weights & Biases logging')
+    parser.add_argument('--wandb_run_name', type=str, default=None, help='Name for the wandb run')
 
     parser.add_argument('--continue_from', type=str, default=None)
     parser.add_argument('--out_dir', type=str, default=None)

@@ -253,7 +253,7 @@ dependencies:
       - labmaze==1.0.6
       - latex==0.7.0
       - liegroups==0.11
-      - lietorch==0.2
+      - lietorch
       - lxml==5.2.1
       - matplotlib-inline==0.1.6
       - mujoco==3.1.5
