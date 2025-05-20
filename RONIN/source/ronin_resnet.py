@@ -559,6 +559,352 @@ def write_config(args):
             json.dump(vars(args), f)
 
 
+def direct_inference(model_path, gyro_data, accel_data, arch='resnet18_eq_frame_o2', device=None, window_size=200, step_size=10):
+    """
+    Run direct inference with only gyro and accel data.
+    
+    Args:
+        model_path: Path to the saved model checkpoint
+        gyro_data: Numpy array of shape (N, 3) containing gyroscope x,y,z data
+        accel_data: Numpy array of shape (N, 3) containing accelerometer x,y,z data
+        arch: Model architecture to use
+        device: Device to run inference on (None for auto-detection)
+        window_size: Size of the sliding window to use for inference
+        step_size: Step size between windows
+        
+    Returns:
+        Predicted trajectory as numpy array of shape (N, 2)
+    """
+    # Set device
+    if device is None:
+        device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    
+    # Load model
+    if not torch.cuda.is_available() and device.type != 'cpu':
+        device = torch.device('cpu')
+        checkpoint = torch.load(model_path, map_location=lambda storage, location: storage)
+    else:
+        checkpoint = torch.load(model_path, map_location=device)
+    
+    # Get model architecture
+    global _fc_config
+    _fc_config['in_dim'] = window_size // 32 + 1  # Set the correct input dimension
+    
+    network = get_model(arch)
+    network.load_state_dict(checkpoint['model_state_dict'])
+    network.eval().to(device)
+    
+    # Prepare data in the right format by windowing it
+    # Concatenate gyro and accel data to match the expected format [gyro_x, gyro_y, gyro_z, accel_x, accel_y, accel_z]
+    data_length = min(len(gyro_data), len(accel_data))
+    combined_data = np.concatenate([gyro_data[:data_length], accel_data[:data_length]], axis=1)  # Shape (N, 6)
+    
+    # Create sliding windows - in the format expected by the dataloader in the original code
+    # The original data loader returns (feat, targ, _, _) where:
+    # - feat is of shape [batch_size, channels, window_size] for ResNet models
+    windows = []
+    targets_idx = []
+    
+    for i in range(0, data_length - window_size, step_size):
+        # Extract window
+        window = combined_data[i:i+window_size]
+        # Reshape to [channels, window_size] as expected by model
+        window = window.transpose()  # Shape: [6, window_size]
+        windows.append(window)
+        targets_idx.append(i + window_size - 1)  # Target is the last frame in the window
+    
+    if not windows:
+        raise ValueError(f"Not enough data for inference. Data length: {data_length}, window size: {window_size}")
+    
+    # Convert to tensor and prepare batch - shape: [batch, channels, window_size]
+    windows = np.array(windows)
+    windows_tensor = torch.from_numpy(windows).float()
+    
+    # Run inference in batches
+    batch_size = 32  # Smaller batch size to avoid memory issues
+    all_preds = []
+    
+    with torch.no_grad():
+        for i in range(0, len(windows), batch_size):
+            batch = windows_tensor[i:i+batch_size]
+            
+            # The preprocess functions expect input with shape [batch, channels, window_size]
+            if 'resnet18_eq_frame_o2' in arch:
+                vector, scalar, orig_sca = preprocess_eq_o2_frame(batch)
+                _, pred = network(vector.to(device), scalar.to(device), orig_sca.to(device))
+            elif 'resnet18_eq_frame' in arch:
+                vector, scalar, orig_sca = preprocess_eq_frame(batch)
+                _, pred = network(vector.to(device), scalar.to(device), orig_sca.to(device))
+            else:
+                pred = network(batch.to(device))
+                
+            all_preds.append(pred.cpu().detach().numpy())
+    
+    # Concatenate all predictions
+    velocity_preds = np.concatenate(all_preds, axis=0)
+    
+    # Create full sequence of velocity predictions (initialize with zeros)
+    full_vel_sequence = np.zeros((data_length, 2))
+    
+    # Fill in the predictions at the corresponding target indices
+    for i, idx in enumerate(targets_idx):
+        if idx < data_length:
+            full_vel_sequence[idx] = velocity_preds[i]
+    
+    # Handle missing predictions (beginning and potentially intermediate steps)
+    # First, propagate backward for the initial window
+    for i in range(targets_idx[0]-1, -1, -1):
+        full_vel_sequence[i] = full_vel_sequence[i+1]
+    
+    # Then forward-fill any remaining gaps
+    last_valid = 0
+    for i in range(1, data_length):
+        if np.all(full_vel_sequence[i] == 0) and np.any(full_vel_sequence[last_valid] != 0):
+            full_vel_sequence[i] = full_vel_sequence[last_valid]
+        elif np.any(full_vel_sequence[i] != 0):
+            last_valid = i
+    
+    # Integrate velocities to get trajectory
+    dt = 1.0/200.0  # Assuming 200Hz sampling rate, adjust if needed
+    trajectory = np.zeros((data_length, 2))
+    trajectory[1:] = np.cumsum(full_vel_sequence[:-1] * dt, axis=0)
+    
+    return trajectory
+
+
+def inspect_model_structure(model_path, arch='resnet18_eq_frame_o2'):
+    """Utility function to inspect the model structure for debugging"""
+    if not torch.cuda.is_available():
+        checkpoint = torch.load(model_path, map_location=lambda storage, location: storage)
+    else:
+        checkpoint = torch.load(model_path)
+    
+    network = get_model(arch)
+    network.load_state_dict(checkpoint['model_state_dict'])
+    network.eval()
+    
+    # Print model structure
+    print(f"Model architecture: {arch}")
+    print(network)
+    
+    # For resnet models, print the output block structure
+    if hasattr(network, 'output_block'):
+        print("\nOutput block structure:")
+        print(network.output_block)
+        
+        # If using FC output, inspect the FC layer dimensions
+        if hasattr(network.output_block, 'fc'):
+            for name, param in network.output_block.fc.named_parameters():
+                if 'weight' in name:
+                    print(f"FC weight shape: {param.shape}")
+                elif 'bias' in name:
+                    print(f"FC bias shape: {param.shape}")
+    
+    # For EqMotion models, print more details
+    if 'eq_frame' in arch:
+        if hasattr(network, 'ronin'):
+            print("\nRoNIN module structure:")
+            print(network.ronin)
+            
+            if hasattr(network.ronin, 'output_block'):
+                print("\nRoNIN output block:")
+                print(network.ronin.output_block)
+                
+                if hasattr(network.ronin.output_block, 'fc'):
+                    for name, param in network.ronin.output_block.fc.named_parameters():
+                        if 'weight' in name:
+                            print(f"FC weight shape: {param.shape}")
+                        elif 'bias' in name:
+                            print(f"FC bias shape: {param.shape}")
+
+
+def compute_ground_truth_trajectory(accel_data, orientation_data, dt=0.005, align_with_prediction=True):
+    """
+    Compute ground truth trajectory using accelerometer and orientation data
+    
+    Args:
+        accel_data: Accelerometer data (N, 3) in device coordinates
+        orientation_data: Orientation data with quaternions (N, 4) in format [qw, qx, qy, qz]
+        dt: Sampling time interval in seconds
+        align_with_prediction: Whether to align the start of the trajectory with prediction
+        
+    Returns:
+        Trajectory as numpy array of shape (N, 2)
+    """
+    import numpy as np
+    from scipy.spatial.transform import Rotation as R
+    
+    # Make sure data lengths match
+    data_length = min(len(accel_data), len(orientation_data))
+    accel_data = accel_data[:data_length]
+    orientation_data = orientation_data[:data_length]
+    
+    # Initialize arrays for global frame acceleration, velocity and position
+    accel_global = np.zeros((data_length, 3))
+    velocity = np.zeros((data_length, 3))
+    position = np.zeros((data_length, 3))
+    
+    # Gravity vector in global frame (m/s²)
+    gravity = np.array([0, 0, 9.81])
+    
+    # Process each sample
+    for i in range(data_length):
+        # Get quaternion in scipy format [qw, qx, qy, qz]
+        quat = orientation_data[i]
+        
+        # Create rotation object
+        rotation = R.from_quat(quat)
+        
+        # Rotate acceleration from device to global frame and remove gravity
+        accel_global[i] = rotation.apply(accel_data[i]) - gravity
+        
+        # Integrate acceleration to get velocity
+        if i > 0:
+            velocity[i] = velocity[i-1] + accel_global[i] * dt
+            
+            # Integrate velocity to get position
+            position[i] = position[i-1] + velocity[i] * dt
+    
+    # Apply low-pass filter to smooth trajectory
+    from scipy.signal import savgol_filter
+    if data_length > 10:
+        window = min(51, data_length // 4 * 2 + 1)  # Must be odd
+        position[:, 0] = savgol_filter(position[:, 0], window, 3)
+        position[:, 1] = savgol_filter(position[:, 1], window, 3)
+    
+    # Return 2D trajectory (x, y)
+    return position[:, :2]
+
+
+def simple_trajectory_inference(model_path, gyro_file, accel_file, output_file, orientation_file=None, arch='resnet18_eq_frame_o2', window_size=200, step_size=10):
+    """
+    Run trajectory inference directly from gyro and accel CSV files.
+    
+    Args:
+        model_path: Path to the saved model checkpoint
+        gyro_file: Path to CSV file with gyroscope data
+        accel_file: Path to CSV file with accelerometer data
+        output_file: Path to save the trajectory
+        orientation_file: Optional path to orientation data for ground truth
+        arch: Model architecture to use
+        window_size: Size of sliding window for inference
+        step_size: Step size between windows
+    """
+    import pandas as pd
+    from scipy import signal
+    
+    print(f"Loading gyroscope data from: {gyro_file}")
+    gyro_df = pd.read_csv(gyro_file)
+    
+    print(f"Loading accelerometer data from: {accel_file}")
+    accel_df = pd.read_csv(accel_file)
+    
+    # First, inspect the model structure to understand expected shapes
+    print("Inspecting model structure...")
+    inspect_model_structure(model_path, arch)
+    
+    # Assuming columns are named 'x', 'y', 'z' and have a 'time' column for synchronization
+    # Merge on timestamp
+    print("Synchronizing data...")
+    merged_df = pd.merge(gyro_df, accel_df, on='time', how='inner', suffixes=('_g', '_a'))
+    
+    if merged_df.empty:
+        raise ValueError("Failed to merge gyro and accel data - check that both have a 'time' column")
+    
+    print(f"Synchronized data shape: {merged_df.shape}")
+    
+    # Extract gyro and accel data
+    gyro_data = merged_df[['x_g', 'y_g', 'z_g']].values  
+    accel_data = merged_df[['x_a', 'y_a', 'z_a']].values
+    
+    # Run inference for predicted trajectory first
+    print(f"Running inference with window_size={window_size}, step_size={step_size}")
+    pred_trajectory = direct_inference(model_path, gyro_data, accel_data, arch, 
+                                    window_size=window_size, step_size=step_size)
+    
+    # Save the predicted trajectory
+    np.save(output_file, pred_trajectory)
+    print(f"Predicted trajectory saved to {output_file}")
+    
+    # Compute ground truth if orientation file is provided
+    gt_trajectory = None
+    if orientation_file:
+        print(f"Loading orientation data from: {orientation_file}")
+        orientation_df = pd.read_csv(orientation_file)
+        
+        # Merge with the existing data on timestamp
+        print("Synchronizing with orientation data...")
+        all_data_df = pd.merge(merged_df, orientation_df, on='time', how='inner')
+        
+        if all_data_df.empty:
+            print("Warning: Failed to merge orientation data - check that it has a 'time' column")
+        else:
+            print(f"Data synchronized with orientation, shape: {all_data_df.shape}")
+            
+            # Extract quaternion data (may need adjustment based on your CSV format)
+            if 'qw' in all_data_df.columns and 'qx' in all_data_df.columns:
+                quat_data = all_data_df[['qw', 'qx', 'qy', 'qz']].values
+                accel_for_gt = all_data_df[['x_a', 'y_a', 'z_a']].values
+                
+                # Calculate sampling rate from timestamps
+                timestamps = all_data_df['time'].values
+                # Convert nanoseconds to seconds if timestamps are in nanoseconds
+                dt = (timestamps[1] - timestamps[0]) / 1e9 if timestamps[0] > 1e12 else 0.005
+                
+                print(f"Computing ground truth trajectory with dt={dt:.6f}...")
+                gt_trajectory = compute_ground_truth_trajectory(accel_for_gt, quat_data, dt)
+                
+                # Align scale and orientation with prediction if possible
+                # This helps with different coordinate systems and ensures proper comparison
+                if len(pred_trajectory) > 0 and len(gt_trajectory) > 0:
+                    # Scale ground truth trajectory to match prediction scale
+                    # Use the ratio of the total distances traveled
+                    pred_dist = np.sum(np.sqrt(np.sum(np.diff(pred_trajectory, axis=0)**2, axis=1)))
+                    gt_dist = np.sum(np.sqrt(np.sum(np.diff(gt_trajectory, axis=0)**2, axis=1)))
+                    
+                    if gt_dist > 0:
+                        scale_factor = pred_dist / gt_dist
+                        print(f"Scaling ground truth by factor: {scale_factor:.4f}")
+                        gt_trajectory = gt_trajectory * scale_factor
+                    
+                # Save ground truth trajectory
+                gt_output_file = output_file.replace('.npy', '_ground_truth.npy')
+                np.save(gt_output_file, gt_trajectory)
+                print(f"Ground truth trajectory saved to {gt_output_file}")
+    
+    # Plot the trajectories
+    plt.figure(figsize=(10, 10))
+    
+    # Plot predicted trajectory
+    plt.plot(pred_trajectory[:, 0], pred_trajectory[:, 1], 'b-', linewidth=2, label='Predicted')
+    
+    if gt_trajectory is not None:
+        # Plot ground truth trajectory
+        plt.plot(gt_trajectory[:, 0], gt_trajectory[:, 1], 'r-', linewidth=2, label='Ground Truth')
+        
+        # Mark starting points
+        plt.plot(pred_trajectory[0, 0], pred_trajectory[0, 1], 'bo', markersize=8, label='Pred Start')
+        plt.plot(gt_trajectory[0, 0], gt_trajectory[0, 1], 'ro', markersize=8, label='GT Start')
+    
+    plt.axis('equal')
+    plt.title('Trajectory Comparison')
+    plt.xlabel('X (m)')
+    plt.ylabel('Y (m)')
+    plt.legend()
+    plt.grid(True)
+    
+    # Add scale information
+    plt.figtext(0.02, 0.02, 
+                f'Total length: Pred={np.sum(np.sqrt(np.sum(np.diff(pred_trajectory, axis=0)**2, axis=1))):.2f}m' + 
+                (f', GT={np.sum(np.sqrt(np.sum(np.diff(gt_trajectory, axis=0)**2, axis=1))):.2f}m' if gt_trajectory is not None else ''),
+                fontsize=9)
+    
+    plt.savefig(output_file.replace('.npy', '.png'), dpi=300)
+    plt.close()
+    
+    return pred_trajectory, gt_trajectory
+
+
 if __name__ == '__main__':
     import argparse
 
@@ -590,12 +936,23 @@ if __name__ == '__main__':
     parser.add_argument('--model_path', type=str, default=None)#"output/ronin_original/checkpoints/checkpoint_82.pt"
     parser.add_argument('--feature_sigma', type=float, default=0.00001)
     parser.add_argument('--target_sigma', type=float, default=0.00001)
+    parser.add_argument('--simple_inference', action='store_true', help='Run simple trajectory inference')
+    parser.add_argument('--gyro_file', type=str, default=None, help='Path to gyroscope CSV file')
+    parser.add_argument('--accel_file', type=str, default=None, help='Path to accelerometer CSV file')
+    parser.add_argument('--orientation_file', type=str, default=None, help='Path to orientation CSV file for ground truth')
+    parser.add_argument('--traj_output', type=str, default=None, help='Path to save trajectory output')
 
     args = parser.parse_args()
 
     np.set_printoptions(formatter={'all': lambda x: '{:.6f}'.format(x)})
 
-    if args.mode == 'train':
+    if args.simple_inference:
+        if not args.gyro_file or not args.accel_file or not args.model_path:
+            raise ValueError('Must provide gyro_file, accel_file, and model_path for simple_inference')
+        output_file = args.traj_output if args.traj_output else 'predicted_trajectory.npy'
+        simple_trajectory_inference(args.model_path, args.gyro_file, args.accel_file, output_file, args.orientation_file, 
+                                   args.arch, window_size=args.window_size, step_size=args.step_size)
+    elif args.mode == 'train':
         train(args)
     elif args.mode == 'test':
         test_sequence(args)
