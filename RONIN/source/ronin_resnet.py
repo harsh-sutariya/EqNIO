@@ -665,7 +665,7 @@ def direct_inference(model_path, gyro_data, accel_data, arch='resnet18_eq_frame_
             last_valid = i
     
     # Integrate velocities to get trajectory
-    dt = 1.0/200.0  # Assuming 200Hz sampling rate, adjust if needed
+    dt = 1.0/100.0  # Assuming 100Hz sampling rate (updated from 200Hz), adjust if needed
     trajectory = np.zeros((data_length, 2))
     trajectory[1:] = np.cumsum(full_vel_sequence[:-1] * dt, axis=0)
     
@@ -718,64 +718,6 @@ def inspect_model_structure(model_path, arch='resnet18_eq_frame_o2'):
                             print(f"FC bias shape: {param.shape}")
 
 
-def compute_ground_truth_trajectory(accel_data, orientation_data, dt=0.005, align_with_prediction=True):
-    """
-    Compute ground truth trajectory using accelerometer and orientation data
-    
-    Args:
-        accel_data: Accelerometer data (N, 3) in device coordinates
-        orientation_data: Orientation data with quaternions (N, 4) in format [qw, qx, qy, qz]
-        dt: Sampling time interval in seconds
-        align_with_prediction: Whether to align the start of the trajectory with prediction
-        
-    Returns:
-        Trajectory as numpy array of shape (N, 2)
-    """
-    import numpy as np
-    from scipy.spatial.transform import Rotation as R
-    
-    # Make sure data lengths match
-    data_length = min(len(accel_data), len(orientation_data))
-    accel_data = accel_data[:data_length]
-    orientation_data = orientation_data[:data_length]
-    
-    # Initialize arrays for global frame acceleration, velocity and position
-    accel_global = np.zeros((data_length, 3))
-    velocity = np.zeros((data_length, 3))
-    position = np.zeros((data_length, 3))
-    
-    # Gravity vector in global frame (m/s²)
-    gravity = np.array([0, 0, 9.81])
-    
-    # Process each sample
-    for i in range(data_length):
-        # Get quaternion in scipy format [qw, qx, qy, qz]
-        quat = orientation_data[i]
-        
-        # Create rotation object
-        rotation = R.from_quat(quat)
-        
-        # Rotate acceleration from device to global frame and remove gravity
-        accel_global[i] = rotation.apply(accel_data[i]) - gravity
-        
-        # Integrate acceleration to get velocity
-        if i > 0:
-            velocity[i] = velocity[i-1] + accel_global[i] * dt
-            
-            # Integrate velocity to get position
-            position[i] = position[i-1] + velocity[i] * dt
-    
-    # Apply low-pass filter to smooth trajectory
-    from scipy.signal import savgol_filter
-    if data_length > 10:
-        window = min(51, data_length // 4 * 2 + 1)  # Must be odd
-        position[:, 0] = savgol_filter(position[:, 0], window, 3)
-        position[:, 1] = savgol_filter(position[:, 1], window, 3)
-    
-    # Return 2D trajectory (x, y)
-    return position[:, :2]
-
-
 def simple_trajectory_inference(model_path, gyro_file, accel_file, output_file, orientation_file=None, arch='resnet18_eq_frame_o2', window_size=200, step_size=10):
     """
     Run trajectory inference directly from gyro and accel CSV files.
@@ -785,13 +727,14 @@ def simple_trajectory_inference(model_path, gyro_file, accel_file, output_file, 
         gyro_file: Path to CSV file with gyroscope data
         accel_file: Path to CSV file with accelerometer data
         output_file: Path to save the trajectory
-        orientation_file: Optional path to orientation data for ground truth
+        orientation_file: Optional path to orientation data (ignored in this version)
         arch: Model architecture to use
         window_size: Size of sliding window for inference
         step_size: Step size between windows
     """
     import pandas as pd
     from scipy import signal
+    from scipy.interpolate import interp1d
     
     print(f"Loading gyroscope data from: {gyro_file}")
     gyro_df = pd.read_csv(gyro_file)
@@ -803,21 +746,57 @@ def simple_trajectory_inference(model_path, gyro_file, accel_file, output_file, 
     print("Inspecting model structure...")
     inspect_model_structure(model_path, arch)
     
-    # Assuming columns are named 'x', 'y', 'z' and have a 'time' column for synchronization
-    # Merge on timestamp
-    print("Synchronizing data...")
-    merged_df = pd.merge(gyro_df, accel_df, on='time', how='inner', suffixes=('_g', '_a'))
+    # Check if both files have a 'time' column
+    if 'time' not in gyro_df.columns:
+        raise ValueError("Gyroscope data missing 'time' column")
+    if 'time' not in accel_df.columns:
+        raise ValueError("Accelerometer data missing 'time' column")
     
-    if merged_df.empty:
-        raise ValueError("Failed to merge gyro and accel data - check that both have a 'time' column")
+    print(f"Gyro data shape: {gyro_df.shape}")
+    print(f"Accel data shape: {accel_df.shape}")
+    print(f"Gyro time range: {gyro_df['time'].min()} to {gyro_df['time'].max()}")
+    print(f"Accel time range: {accel_df['time'].min()} to {accel_df['time'].max()}")
     
-    print(f"Synchronized data shape: {merged_df.shape}")
+    # Find the overlapping time range
+    start_time = max(gyro_df['time'].min(), accel_df['time'].min())
+    end_time = min(gyro_df['time'].max(), accel_df['time'].max())
     
-    # Extract gyro and accel data
-    gyro_data = merged_df[['x_g', 'y_g', 'z_g']].values  
-    accel_data = merged_df[['x_a', 'y_a', 'z_a']].values
+    if start_time >= end_time:
+        raise ValueError("No overlapping time range between gyro and accel data")
     
-    # Run inference for predicted trajectory first
+    print(f"Overlapping time range: {start_time} to {end_time}")
+    
+    # Filter data to overlapping range
+    gyro_filtered = gyro_df[(gyro_df['time'] >= start_time) & (gyro_df['time'] <= end_time)].copy()
+    accel_filtered = accel_df[(accel_df['time'] >= start_time) & (accel_df['time'] <= end_time)].copy()
+    
+    # Sort by time
+    gyro_filtered = gyro_filtered.sort_values('time').reset_index(drop=True)
+    accel_filtered = accel_filtered.sort_values('time').reset_index(drop=True)
+    
+    # Use gyro timestamps as reference and interpolate accel data
+    print("Synchronizing data using interpolation...")
+    reference_times = gyro_filtered['time'].values
+    
+    # Interpolate accelerometer data to gyro timestamps
+    accel_x_interp = interp1d(accel_filtered['time'], accel_filtered['x'], 
+                             kind='linear', bounds_error=False, fill_value='extrapolate')
+    accel_y_interp = interp1d(accel_filtered['time'], accel_filtered['y'], 
+                             kind='linear', bounds_error=False, fill_value='extrapolate')
+    accel_z_interp = interp1d(accel_filtered['time'], accel_filtered['z'], 
+                             kind='linear', bounds_error=False, fill_value='extrapolate')
+    
+    # Create synchronized data
+    gyro_data = gyro_filtered[['x', 'y', 'z']].values  
+    accel_data = np.column_stack([
+        accel_x_interp(reference_times),
+        accel_y_interp(reference_times),
+        accel_z_interp(reference_times)
+    ])
+    
+    print(f"Synchronized data shape: gyro={gyro_data.shape}, accel={accel_data.shape}")
+    
+    # Run inference for predicted trajectory
     print(f"Running inference with window_size={window_size}, step_size={step_size}")
     pred_trajectory = direct_inference(model_path, gyro_data, accel_data, arch, 
                                     window_size=window_size, step_size=step_size)
@@ -826,83 +805,210 @@ def simple_trajectory_inference(model_path, gyro_file, accel_file, output_file, 
     np.save(output_file, pred_trajectory)
     print(f"Predicted trajectory saved to {output_file}")
     
-    # Compute ground truth if orientation file is provided
-    gt_trajectory = None
-    if orientation_file:
-        print(f"Loading orientation data from: {orientation_file}")
-        orientation_df = pd.read_csv(orientation_file)
-        
-        # Merge with the existing data on timestamp
-        print("Synchronizing with orientation data...")
-        all_data_df = pd.merge(merged_df, orientation_df, on='time', how='inner')
-        
-        if all_data_df.empty:
-            print("Warning: Failed to merge orientation data - check that it has a 'time' column")
-        else:
-            print(f"Data synchronized with orientation, shape: {all_data_df.shape}")
-            
-            # Extract quaternion data (may need adjustment based on your CSV format)
-            if 'qw' in all_data_df.columns and 'qx' in all_data_df.columns:
-                quat_data = all_data_df[['qw', 'qx', 'qy', 'qz']].values
-                accel_for_gt = all_data_df[['x_a', 'y_a', 'z_a']].values
-                
-                # Calculate sampling rate from timestamps
-                timestamps = all_data_df['time'].values
-                # Convert nanoseconds to seconds if timestamps are in nanoseconds
-                dt = (timestamps[1] - timestamps[0]) / 1e9 if timestamps[0] > 1e12 else 0.005
-                
-                print(f"Computing ground truth trajectory with dt={dt:.6f}...")
-                gt_trajectory = compute_ground_truth_trajectory(accel_for_gt, quat_data, dt)
-                
-                # Align scale and orientation with prediction if possible
-                # This helps with different coordinate systems and ensures proper comparison
-                if len(pred_trajectory) > 0 and len(gt_trajectory) > 0:
-                    # Scale ground truth trajectory to match prediction scale
-                    # Use the ratio of the total distances traveled
-                    pred_dist = np.sum(np.sqrt(np.sum(np.diff(pred_trajectory, axis=0)**2, axis=1)))
-                    gt_dist = np.sum(np.sqrt(np.sum(np.diff(gt_trajectory, axis=0)**2, axis=1)))
-                    
-                    if gt_dist > 0:
-                        scale_factor = pred_dist / gt_dist
-                        print(f"Scaling ground truth by factor: {scale_factor:.4f}")
-                        gt_trajectory = gt_trajectory * scale_factor
-                    
-                # Save ground truth trajectory
-                gt_output_file = output_file.replace('.npy', '_ground_truth.npy')
-                np.save(gt_output_file, gt_trajectory)
-                print(f"Ground truth trajectory saved to {gt_output_file}")
-    
-    # Plot the trajectories
+    # Plot the predicted trajectory only
     plt.figure(figsize=(10, 10))
     
     # Plot predicted trajectory
     plt.plot(pred_trajectory[:, 0], pred_trajectory[:, 1], 'b-', linewidth=2, label='Predicted')
     
-    if gt_trajectory is not None:
-        # Plot ground truth trajectory
-        plt.plot(gt_trajectory[:, 0], gt_trajectory[:, 1], 'r-', linewidth=2, label='Ground Truth')
-        
-        # Mark starting points
-        plt.plot(pred_trajectory[0, 0], pred_trajectory[0, 1], 'bo', markersize=8, label='Pred Start')
-        plt.plot(gt_trajectory[0, 0], gt_trajectory[0, 1], 'ro', markersize=8, label='GT Start')
+    # Mark starting point
+    plt.plot(pred_trajectory[0, 0], pred_trajectory[0, 1], 'bo', markersize=8, label='Start')
     
     plt.axis('equal')
-    plt.title('Trajectory Comparison')
+    plt.title('Predicted Trajectory')
     plt.xlabel('X (m)')
     plt.ylabel('Y (m)')
     plt.legend()
     plt.grid(True)
     
-    # Add scale information
-    plt.figtext(0.02, 0.02, 
-                f'Total length: Pred={np.sum(np.sqrt(np.sum(np.diff(pred_trajectory, axis=0)**2, axis=1))):.2f}m' + 
-                (f', GT={np.sum(np.sqrt(np.sum(np.diff(gt_trajectory, axis=0)**2, axis=1))):.2f}m' if gt_trajectory is not None else ''),
-                fontsize=9)
+    # Add trajectory length information
+    total_length = np.sum(np.sqrt(np.sum(np.diff(pred_trajectory, axis=0)**2, axis=1)))
+    plt.figtext(0.02, 0.02, f'Total length: {total_length:.2f}m', fontsize=9)
     
     plt.savefig(output_file.replace('.npy', '.png'), dpi=300)
     plt.close()
     
-    return pred_trajectory, gt_trajectory
+    return pred_trajectory
+
+
+def enhanced_trajectory_inference(model_path, gyro_file, accel_file, output_file, orientation_file=None, arch='resnet18_eq_frame_o2', window_size=200, step_size=10):
+    """
+    Run trajectory inference with enhanced reconstruction using actual timestamps and proper integration.
+    This bridges the gap between simple_inference and test_sequence approaches.
+    
+    Args:
+        model_path: Path to the saved model checkpoint
+        gyro_file: Path to CSV file with gyroscope data
+        accel_file: Path to CSV file with accelerometer data  
+        output_file: Path to save the trajectory
+        orientation_file: Optional path to orientation data for ground truth comparison
+        arch: Model architecture to use
+        window_size: Size of sliding window for inference
+        step_size: Step size between windows
+    """
+    import pandas as pd
+    from scipy import signal
+    from scipy.interpolate import interp1d
+    
+    print(f"Loading gyroscope data from: {gyro_file}")
+    gyro_df = pd.read_csv(gyro_file)
+    
+    print(f"Loading accelerometer data from: {accel_file}")
+    accel_df = pd.read_csv(accel_file)
+    
+    # Load orientation data if available for ground truth comparison
+    gt_trajectory = None
+    if orientation_file and os.path.exists(orientation_file):
+        print(f"Loading orientation data for ground truth: {orientation_file}")
+        ori_df = pd.read_csv(orientation_file)
+        # Extract position from orientation (if available) - this would need proper pose integration
+        # For now, we'll just note that GT data is available
+        print("Ground truth orientation data loaded (pose integration needed for trajectory)")
+    
+    # Inspect the model structure
+    print("Inspecting model structure...")
+    inspect_model_structure(model_path, arch)
+    
+    # Check data integrity
+    if 'time' not in gyro_df.columns or 'time' not in accel_df.columns:
+        raise ValueError("Missing 'time' column in sensor data")
+    
+    print(f"Gyro data shape: {gyro_df.shape}")
+    print(f"Accel data shape: {accel_df.shape}")
+    print(f"Gyro time range: {gyro_df['time'].min()} to {gyro_df['time'].max()}")
+    print(f"Accel time range: {accel_df['time'].min()} to {accel_df['time'].max()}")
+    
+    # Calculate actual sampling rates from timestamps
+    gyro_time_diffs = np.diff(gyro_df['time'].values) * 1e-9  # Convert nanoseconds to seconds
+    accel_time_diffs = np.diff(accel_df['time'].values) * 1e-9
+    
+    gyro_dt_mean = np.mean(gyro_time_diffs)
+    accel_dt_mean = np.mean(accel_time_diffs)
+    gyro_hz = 1.0 / gyro_dt_mean
+    accel_hz = 1.0 / accel_dt_mean
+    
+    print(f"\n=== DYNAMIC SAMPLING ANALYSIS ===")
+    print(f"Gyro sampling: {gyro_hz:.1f} Hz (dt={gyro_dt_mean*1000:.2f}ms)")
+    print(f"Accel sampling: {accel_hz:.1f} Hz (dt={accel_dt_mean*1000:.2f}ms)")
+    print(f"Gyro timing irregularity: {np.std(gyro_time_diffs)*1000:.2f}ms std")
+    print(f"Accel timing irregularity: {np.std(accel_time_diffs)*1000:.2f}ms std")
+    
+    # Find overlapping time range
+    start_time = max(gyro_df['time'].min(), accel_df['time'].min())
+    end_time = min(gyro_df['time'].max(), accel_df['time'].max())
+    
+    if start_time >= end_time:
+        raise ValueError("No overlapping time range between gyro and accel data")
+    
+    print(f"Overlapping time range: {start_time} to {end_time}")
+    
+    # Filter and sort data
+    gyro_filtered = gyro_df[(gyro_df['time'] >= start_time) & (gyro_df['time'] <= end_time)].copy()
+    accel_filtered = accel_df[(accel_df['time'] >= start_time) & (accel_df['time'] <= end_time)].copy()
+    
+    gyro_filtered = gyro_filtered.sort_values('time').reset_index(drop=True)
+    accel_filtered = accel_filtered.sort_values('time').reset_index(drop=True)
+    
+    # Use gyro timestamps as reference and interpolate accel data
+    print("Synchronizing data using interpolation...")
+    reference_times = gyro_filtered['time'].values
+    
+    # Interpolate accelerometer data to gyro timestamps
+    accel_x_interp = interp1d(accel_filtered['time'], accel_filtered['x'], 
+                             kind='linear', bounds_error=False, fill_value='extrapolate')
+    accel_y_interp = interp1d(accel_filtered['time'], accel_filtered['y'], 
+                             kind='linear', bounds_error=False, fill_value='extrapolate')
+    accel_z_interp = interp1d(accel_filtered['time'], accel_filtered['z'], 
+                             kind='linear', bounds_error=False, fill_value='extrapolate')
+    
+    # Create synchronized data
+    gyro_data = gyro_filtered[['x', 'y', 'z']].values  
+    accel_data = np.column_stack([
+        accel_x_interp(reference_times),
+        accel_y_interp(reference_times),
+        accel_z_interp(reference_times)
+    ])
+    
+    print(f"Synchronized data shape: gyro={gyro_data.shape}, accel={accel_data.shape}")
+    
+    # Run inference to get velocity predictions
+    print(f"Running inference with window_size={window_size}, step_size={step_size}")
+    velocity_preds = direct_inference(model_path, gyro_data, accel_data, arch, 
+                                    window_size=window_size, step_size=step_size)
+    
+    # ENHANCED TRAJECTORY RECONSTRUCTION using actual timestamps
+    print("\n=== ENHANCED TRAJECTORY RECONSTRUCTION ===")
+    
+    # Convert nanosecond timestamps to seconds relative to start
+    timestamps_sec = (reference_times - reference_times[0]) * 1e-9
+    
+    # Create time differences for proper integration (like recon_traj_with_preds)
+    dt_array = np.diff(timestamps_sec)
+    dt_mean = np.mean(dt_array)
+    
+    print(f"Using actual time differences: mean_dt={dt_mean:.6f}s ({1/dt_mean:.1f}Hz)")
+    print(f"Time difference std: {np.std(dt_array)*1000:.3f}ms")
+    
+    # Integrate velocities using actual time differences
+    trajectory = np.zeros((len(velocity_preds), 2))
+    
+    # Cumulative integration with proper time steps
+    for i in range(1, len(velocity_preds)):
+        if i-1 < len(dt_array):
+            dt = dt_array[i-1]
+        else:
+            dt = dt_mean  # Use mean for any edge cases
+        trajectory[i] = trajectory[i-1] + velocity_preds[i-1] * dt
+    
+    # Alternative: more sophisticated integration matching test_sequence approach
+    # This mimics the recon_traj_with_preds function behavior
+    trajectory_advanced = np.zeros((len(velocity_preds), 2))
+    if len(dt_array) > 0:
+        # Use cumsum with actual time differences (broadcasting)
+        dt_expanded = np.append(dt_array, dt_mean)  # Handle last element
+        trajectory_advanced[1:] = np.cumsum(velocity_preds[:-1] * dt_expanded[:-1].reshape(-1, 1), axis=0)
+    
+    print(f"Trajectory integration completed:")
+    print(f"  Method 1 (iterative): Total distance = {np.linalg.norm(trajectory[-1]):.2f}m")
+    print(f"  Method 2 (vectorized): Total distance = {np.linalg.norm(trajectory_advanced[-1]):.2f}m")
+    
+    # Use the more sophisticated method
+    final_trajectory = trajectory_advanced
+    
+    # Save the predicted trajectory
+    np.save(output_file, final_trajectory)
+    print(f"Enhanced trajectory saved to {output_file}")
+    
+    # Create enhanced visualization - single trajectory plot only
+    plt.figure(figsize=(10, 10))
+    
+    plt.plot(final_trajectory[:, 0], final_trajectory[:, 1], 'b-', linewidth=2, label='Enhanced Predicted')
+    plt.plot(final_trajectory[0, 0], final_trajectory[0, 1], 'go', markersize=8, label='Start')
+    plt.plot(final_trajectory[-1, 0], final_trajectory[-1, 1], 'ro', markersize=8, label='End')
+    plt.axis('equal')
+    plt.title('Enhanced Trajectory Reconstruction')
+    plt.xlabel('X (m)')
+    plt.ylabel('Y (m)')
+    plt.legend()
+    plt.grid(True)
+    
+    # Add comprehensive info
+    total_length = np.sum(np.sqrt(np.sum(np.diff(final_trajectory, axis=0)**2, axis=1)))
+    duration = timestamps_sec[-1] - timestamps_sec[0]
+    avg_speed = total_length / duration if duration > 0 else 0
+    
+    plt.figtext(0.02, 0.02, 
+                f'Enhanced Reconstruction Statistics:\n'
+                f'Total length: {total_length:.2f}m | Duration: {duration:.2f}s | Avg speed: {avg_speed:.2f}m/s\n'
+                f'Sampling: {1/dt_mean:.1f}Hz | Integration method: Actual timestamps\n'
+                f'Data points: {len(final_trajectory)} | Model: {arch}', 
+                fontsize=9, bbox=dict(boxstyle="round,pad=0.3", facecolor="lightgray"))
+    
+    plt.tight_layout()
+    plt.savefig(output_file.replace('.npy', '.png'), dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    return final_trajectory
 
 
 if __name__ == '__main__':
@@ -941,6 +1047,7 @@ if __name__ == '__main__':
     parser.add_argument('--accel_file', type=str, default=None, help='Path to accelerometer CSV file')
     parser.add_argument('--orientation_file', type=str, default=None, help='Path to orientation CSV file for ground truth')
     parser.add_argument('--traj_output', type=str, default=None, help='Path to save trajectory output')
+    parser.add_argument('--enhanced_reconstruction', action='store_true', help='Use enhanced trajectory reconstruction with actual timestamps')
 
     args = parser.parse_args()
 
@@ -950,8 +1057,13 @@ if __name__ == '__main__':
         if not args.gyro_file or not args.accel_file or not args.model_path:
             raise ValueError('Must provide gyro_file, accel_file, and model_path for simple_inference')
         output_file = args.traj_output if args.traj_output else 'predicted_trajectory.npy'
-        simple_trajectory_inference(args.model_path, args.gyro_file, args.accel_file, output_file, args.orientation_file, 
-                                   args.arch, window_size=args.window_size, step_size=args.step_size)
+        
+        if args.enhanced_reconstruction:
+            enhanced_trajectory_inference(args.model_path, args.gyro_file, args.accel_file, output_file, args.orientation_file, 
+                                       args.arch, window_size=args.window_size, step_size=args.step_size)
+        else:
+            simple_trajectory_inference(args.model_path, args.gyro_file, args.accel_file, output_file, args.orientation_file, 
+                                       args.arch, window_size=args.window_size, step_size=args.step_size)
     elif args.mode == 'train':
         train(args)
     elif args.mode == 'test':
