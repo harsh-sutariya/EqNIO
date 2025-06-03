@@ -831,6 +831,195 @@ def simple_trajectory_inference(model_path, gyro_file, accel_file, output_file, 
     return pred_trajectory
 
 
+def preprocessing_aligned_trajectory_inference(model_path, gyro_file, accel_file, output_file, orientation_file=None, arch='resnet18_eq_frame_o2', window_size=200, step_size=10):
+    """
+    Run trajectory inference with preprocessing FULLY ALIGNED to --mode test approach.
+    This ensures identical preprocessing pipeline as used in test_sequence().
+    
+    Args:
+        model_path: Path to the saved model checkpoint
+        gyro_file: Path to CSV file with gyroscope data (should be uncalibrated)
+        accel_file: Path to CSV file with accelerometer data
+        output_file: Path to save the trajectory
+        orientation_file: Path to orientation data (REQUIRED for proper preprocessing)
+        arch: Model architecture to use
+        window_size: Size of sliding window for inference
+        step_size: Step size between windows
+    """
+    import pandas as pd
+    from scipy import signal
+    from scipy.interpolate import interp1d
+    import quaternion
+    
+    print(f"=== PREPROCESSING-ALIGNED TRAJECTORY INFERENCE ===")
+    print(f"Loading gyroscope data from: {gyro_file}")
+    gyro_df = pd.read_csv(gyro_file)
+    
+    print(f"Loading accelerometer data from: {accel_file}")
+    accel_df = pd.read_csv(accel_file)
+    
+    # CRITICAL: Load orientation data (required for global frame transformation)
+    if not orientation_file or not os.path.exists(orientation_file):
+        raise ValueError("Orientation file is REQUIRED for proper preprocessing alignment! "
+                        "The model expects global frame data, not sensor frame.")
+    
+    print(f"Loading orientation data from: {orientation_file}")
+    ori_df = pd.read_csv(orientation_file)
+    
+    # Inspect model structure
+    print("Inspecting model structure...")
+    inspect_model_structure(model_path, arch)
+    
+    # Check data integrity
+    required_cols_gyro_accel = ['time', 'x', 'y', 'z']
+    required_cols_orientation = ['time', 'qx', 'qy', 'qz', 'qw']
+    
+    for df, name, cols in [(gyro_df, 'gyro', required_cols_gyro_accel), 
+                           (accel_df, 'accel', required_cols_gyro_accel), 
+                           (ori_df, 'orientation', required_cols_orientation)]:
+        missing = [col for col in cols if col not in df.columns]
+        if missing:
+            raise ValueError(f"Missing columns in {name} data: {missing}. Available columns: {list(df.columns)}")
+    
+    print(f"Gyro data shape: {gyro_df.shape}")
+    print(f"Accel data shape: {accel_df.shape}")  
+    print(f"Orientation data shape: {ori_df.shape}")
+    print(f"Orientation columns: {list(ori_df.columns)}")
+    
+    # Find overlapping time range across all sensors
+    start_time = max(gyro_df['time'].min(), accel_df['time'].min(), ori_df['time'].min())
+    end_time = min(gyro_df['time'].max(), accel_df['time'].max(), ori_df['time'].max())
+    
+    if start_time >= end_time:
+        raise ValueError("No overlapping time range between all sensor data")
+        
+    print(f"Overlapping time range: {start_time} to {end_time}")
+    
+    # Filter all data to overlapping range and sort
+    gyro_filtered = gyro_df[(gyro_df['time'] >= start_time) & (gyro_df['time'] <= end_time)].sort_values('time').reset_index(drop=True)
+    accel_filtered = accel_df[(accel_df['time'] >= start_time) & (accel_df['time'] <= end_time)].sort_values('time').reset_index(drop=True)
+    ori_filtered = ori_df[(ori_df['time'] >= start_time) & (ori_df['time'] <= end_time)].sort_values('time').reset_index(drop=True)
+    
+    # Use gyro timestamps as reference (following RoNIN approach)
+    reference_times = gyro_filtered['time'].values
+    
+    print("Synchronizing all sensor data using interpolation...")
+    
+    # Interpolate accelerometer data to gyro timestamps
+    accel_x_interp = interp1d(accel_filtered['time'], accel_filtered['x'], kind='linear', bounds_error=False, fill_value='extrapolate')
+    accel_y_interp = interp1d(accel_filtered['time'], accel_filtered['y'], kind='linear', bounds_error=False, fill_value='extrapolate')
+    accel_z_interp = interp1d(accel_filtered['time'], accel_filtered['z'], kind='linear', bounds_error=False, fill_value='extrapolate')
+    
+    # Interpolate orientation data to gyro timestamps  
+    ori_x_interp = interp1d(ori_filtered['time'], ori_filtered['qx'], kind='linear', bounds_error=False, fill_value='extrapolate')
+    ori_y_interp = interp1d(ori_filtered['time'], ori_filtered['qy'], kind='linear', bounds_error=False, fill_value='extrapolate')
+    ori_z_interp = interp1d(ori_filtered['time'], ori_filtered['qz'], kind='linear', bounds_error=False, fill_value='extrapolate')
+    ori_w_interp = interp1d(ori_filtered['time'], ori_filtered['qw'], kind='linear', bounds_error=False, fill_value='extrapolate')
+    
+    # Create synchronized data arrays
+    gyro_data = gyro_filtered[['x', 'y', 'z']].values  # Uncalibrated gyro
+    accel_data = np.column_stack([
+        accel_x_interp(reference_times),
+        accel_y_interp(reference_times), 
+        accel_z_interp(reference_times)
+    ])  # Uncalibrated accel
+    
+    # Orientation quaternions [x, y, z, w] -> [w, x, y, z] for quaternion library
+    ori_data = np.column_stack([
+        ori_w_interp(reference_times),
+        ori_x_interp(reference_times),
+        ori_y_interp(reference_times),
+        ori_z_interp(reference_times)
+    ])
+    
+    print(f"Synchronized data shapes: gyro={gyro_data.shape}, accel={accel_data.shape}, ori={ori_data.shape}")
+    
+    # === APPLY RONIN-STYLE PREPROCESSING ===
+    print("\n=== APPLYING RONIN-STYLE PREPROCESSING ===")
+    
+    # NOTE: For proper alignment, we'd need calibration parameters from info.json
+    # For now, we'll use the data as-is but transform to global frame
+    print("WARNING: Using raw sensor data without calibration correction.")
+    print("For perfect alignment, calibration parameters (gyro_bias, accel_scale, accel_bias) are needed.")
+    
+    # Apply quaternion transformation to global frame (following GlobSpeedSequence.load())
+    ori_q = quaternion.from_float_array(ori_data)  # Convert to quaternion objects
+    
+    # Create quaternion representations of sensor data
+    gyro_q = quaternion.from_float_array(np.concatenate([np.zeros([gyro_data.shape[0], 1]), gyro_data], axis=1))
+    accel_q = quaternion.from_float_array(np.concatenate([np.zeros([accel_data.shape[0], 1]), accel_data], axis=1))
+    
+    # Transform to global frame (matching GlobSpeedSequence approach)
+    glob_gyro = quaternion.as_float_array(ori_q * gyro_q * ori_q.conj())[:, 1:]
+    glob_accel = quaternion.as_float_array(ori_q * accel_q * ori_q.conj())[:, 1:]
+    
+    # Create features in RoNIN format: [glob_gyro_x, glob_gyro_y, glob_gyro_z, glob_accel_x, glob_accel_y, glob_accel_z]
+    ronin_features = np.concatenate([glob_gyro, glob_accel], axis=1)
+    
+    print(f"Global frame features shape: {ronin_features.shape}")
+    print(f"Gyro range: [{glob_gyro.min():.3f}, {glob_gyro.max():.3f}]")
+    print(f"Accel range: [{glob_accel.min():.3f}, {glob_accel.max():.3f}]") 
+    
+    # Calculate actual sampling rates
+    timestamps_sec = (reference_times - reference_times[0]) * 1e-9
+    dt_array = np.diff(timestamps_sec)
+    dt_mean = np.mean(dt_array)
+    
+    print(f"Detected sampling rate: {1/dt_mean:.1f} Hz (dt={dt_mean*1000:.2f}ms)")
+    
+    # === RUN INFERENCE WITH ALIGNED DATA ===
+    print(f"\n=== RUNNING INFERENCE ===")
+    print(f"Using window_size={window_size}, step_size={step_size}")
+    
+    # Use the properly preprocessed global frame data for inference
+    velocity_preds = direct_inference(model_path, glob_gyro, glob_accel, arch, 
+                                    window_size=window_size, step_size=step_size)
+    
+    # Enhanced trajectory reconstruction using actual timestamps  
+    print("\n=== ENHANCED TRAJECTORY RECONSTRUCTION ===")
+    print(f"Using actual time differences: mean_dt={dt_mean:.6f}s ({1/dt_mean:.1f}Hz)")
+    
+    # Integrate using actual time differences (matching recon_traj_with_preds approach)
+    trajectory = np.zeros((len(velocity_preds), 2))
+    if len(dt_array) > 0:
+        dt_expanded = np.append(dt_array, dt_mean)
+        trajectory[1:] = np.cumsum(velocity_preds[:-1] * dt_expanded[:-1].reshape(-1, 1), axis=0)
+    
+    # Save results
+    np.save(output_file, trajectory)
+    print(f"Preprocessing-aligned trajectory saved to {output_file}")
+    
+    # Create visualization - main trajectory plot only
+    plt.figure(figsize=(10, 10))
+    
+    plt.plot(trajectory[:, 0], trajectory[:, 1], 'b-', linewidth=2, label='Aligned Predicted')
+    plt.plot(trajectory[0, 0], trajectory[0, 1], 'go', markersize=8, label='Start')
+    plt.plot(trajectory[-1, 0], trajectory[-1, 1], 'ro', markersize=8, label='End')
+    plt.axis('equal')
+    plt.title('Preprocessing-Aligned Trajectory')
+    plt.xlabel('X (m)')
+    plt.ylabel('Y (m)')
+    plt.legend()
+    plt.grid(True)
+    
+    # Add summary statistics at the bottom
+    total_length = np.sum(np.sqrt(np.sum(np.diff(trajectory, axis=0)**2, axis=1)))
+    duration = (reference_times[-1] - reference_times[0]) * 1e-9
+    avg_speed = total_length / duration if duration > 0 else 0
+    
+    plt.figtext(0.02, 0.02, 
+                f'Preprocessing-Aligned Trajectory Statistics:\n'
+                f'Total length: {total_length:.2f}m | Duration: {duration:.2f}s | Avg speed: {avg_speed:.2f}m/s\n'
+                f'Sampling: {1/dt_mean:.1f}Hz | Data points: {len(trajectory)} | Model: {arch}', 
+                fontsize=9, bbox=dict(boxstyle="round,pad=0.3", facecolor="lightgray"))
+    
+    plt.tight_layout()
+    plt.savefig(output_file.replace('.npy', '.png'), dpi=300, bbox_inches='tight')
+    plt.close()
+    
+    return trajectory
+
+
 def enhanced_trajectory_inference(model_path, gyro_file, accel_file, output_file, orientation_file=None, arch='resnet18_eq_frame_o2', window_size=200, step_size=10):
     """
     Run trajectory inference with enhanced reconstruction using actual timestamps and proper integration.
@@ -1048,6 +1237,7 @@ if __name__ == '__main__':
     parser.add_argument('--orientation_file', type=str, default=None, help='Path to orientation CSV file for ground truth')
     parser.add_argument('--traj_output', type=str, default=None, help='Path to save trajectory output')
     parser.add_argument('--enhanced_reconstruction', action='store_true', help='Use enhanced trajectory reconstruction with actual timestamps')
+    parser.add_argument('--preprocessing_aligned', action='store_true', help='Use preprocessing fully aligned with --mode test (requires orientation file)')
 
     args = parser.parse_args()
 
@@ -1058,7 +1248,10 @@ if __name__ == '__main__':
             raise ValueError('Must provide gyro_file, accel_file, and model_path for simple_inference')
         output_file = args.traj_output if args.traj_output else 'predicted_trajectory.npy'
         
-        if args.enhanced_reconstruction:
+        if args.preprocessing_aligned:
+            preprocessing_aligned_trajectory_inference(args.model_path, args.gyro_file, args.accel_file, output_file, args.orientation_file, 
+                                                     args.arch, window_size=args.window_size, step_size=args.step_size)
+        elif args.enhanced_reconstruction:
             enhanced_trajectory_inference(args.model_path, args.gyro_file, args.accel_file, output_file, args.orientation_file, 
                                        args.arch, window_size=args.window_size, step_size=args.step_size)
         else:

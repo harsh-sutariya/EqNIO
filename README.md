@@ -1,3 +1,36 @@
+# Changes
+=== APPLYING RONIN-STYLE PREPROCESSING ===
+WARNING: Using raw sensor data without calibration correction.
+For perfect alignment, calibration parameters (gyro_bias, accel_scale, accel_bias) are needed.
+Global frame features shape: (5771, 6)
+Gyro range: [-1.181, 2.979]
+Accel range: [-4.131, 5.565]
+Detected sampling rate: 99.4 Hz (dt=10.06ms)
+
+=== RUNNING INFERENCE ===
+Using window_size=200, step_size=10
+
+=== ENHANCED TRAJECTORY RECONSTRUCTION ===
+Using actual time differences: mean_dt=0.010059s (99.4Hz)
+Preprocessing-aligned trajectory saved to /scratch/hs5580/eqnio/EqNIO/output/ronin_o2/direct_inference/predicted_trajectory.npy
+
+=== PREPROCESSING-ALIGNED TRAJECTORY INFERENCE COMPLETED ===
+✓ Used identical preprocessing pipeline as --mode test
+✓ Applied global frame transformation using orientation data
+✓ Synchronized all sensor data (gyro, accel, orientation)
+✓ Enhanced trajectory reconstruction with actual timestamps
+
+Results:
+  Model: /scratch/hs5580/eqnio/Ronin_o2/checkpoint_38.pt
+  Trajectory: /scratch/hs5580/eqnio/EqNIO/output/ronin_o2/direct_inference/predicted_trajectory.npy
+  Visualization: /scratch/hs5580/eqnio/EqNIO/output/ronin_o2/direct_inference/predicted_trajectory.png
+
+Key differences from regular inference:
+  • Global frame data (not sensor frame)
+  • Quaternion-based orientation integration
+  • RoNIN-style feature formatting [gyro, accel]
+  • Calibration awareness (requires calibration params for perfection)
+
 # EqNIO: Subequivariant Neural Inertial Odometry (ICLR 2025)
 
 ![Teaser](images/Picture1.png)

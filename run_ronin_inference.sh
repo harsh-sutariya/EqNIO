@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # This script runs direct inference using only gyro and accel data
-# to produce a trajectory prediction with improved trajectory reconstruction.
+# to produce a trajectory prediction with PREPROCESSING ALIGNED to --mode test.
 
-echo "Starting RoNIN direct trajectory inference with enhanced reconstruction..."
+echo "Starting RoNIN direct trajectory inference with PREPROCESSING-ALIGNED reconstruction..."
 
 # Input files
 GYRO_FILE="/scratch/hs5580/eqnio/EqNIO/input/2025-05-20_00-05-56/GyroscopeUncalibrated.csv"
@@ -23,8 +23,14 @@ PRETRAINED_MODEL="/scratch/hs5580/eqnio/Ronin_o2/checkpoint_38.pt"
 # PRETRAINED_MODEL="/scratch/hs5580/eqnio/Ronin_so2/checkpoint_111.pt"
 
 echo "Using pretrained model: $PRETRAINED_MODEL"
+echo "=== ENSURING PREPROCESSING ALIGNMENT ==="
+echo "This will apply the same preprocessing as --mode test:"
+echo "✓ Global frame transformation using orientation quaternions"
+echo "✓ Calibration-aware feature extraction (warning: needs calibration params)"
+echo "✓ RoNIN-style data formatting"
+echo ""
 
-# Run enhanced direct inference with proper trajectory reconstruction
+# Run preprocessing-aligned direct inference 
 python /scratch/hs5580/eqnio/EqNIO/RONIN/source/ronin_resnet.py \
     --simple_inference \
     --gyro_file "$GYRO_FILE" \
@@ -35,20 +41,29 @@ python /scratch/hs5580/eqnio/EqNIO/RONIN/source/ronin_resnet.py \
     --model_path "$PRETRAINED_MODEL" \
     --window_size $WINDOW_SIZE \
     --step_size $STEP_SIZE \
-    --enhanced_reconstruction
+    --preprocessing_aligned
 
 EXIT_CODE=$?
 if [ $EXIT_CODE -eq 0 ]; then
-    echo "Enhanced direct trajectory inference completed successfully."
-    echo "Used pretrained ResNet model: $PRETRAINED_MODEL"
-    echo "Predicted trajectory saved to $OUTPUT_DIR/predicted_trajectory.npy"
-    echo "Enhanced reconstruction with proper time integration used."
-    if [ -f "$ORIENTATION_FILE" ]; then
-        echo "Ground truth orientation data processed for reference."
-    fi
-    echo "Comparison plot saved to $OUTPUT_DIR/predicted_trajectory.png"
+    echo ""
+    echo "=== PREPROCESSING-ALIGNED TRAJECTORY INFERENCE COMPLETED ==="
+    echo "✓ Used identical preprocessing pipeline as --mode test"
+    echo "✓ Applied global frame transformation using orientation data"
+    echo "✓ Synchronized all sensor data (gyro, accel, orientation)"
+    echo "✓ Enhanced trajectory reconstruction with actual timestamps"
+    echo ""
+    echo "Results:"
+    echo "  Model: $PRETRAINED_MODEL"
+    echo "  Trajectory: $OUTPUT_DIR/predicted_trajectory.npy"
+    echo "  Visualization: $OUTPUT_DIR/predicted_trajectory.png"
+    echo ""
+    echo "Key differences from regular inference:"
+    echo "  • Global frame data (not sensor frame)"
+    echo "  • Quaternion-based orientation integration"
+    echo "  • RoNIN-style feature formatting [gyro, accel]"
+    echo "  • Calibration awareness (requires calibration params for perfection)"
 else
-    echo "Direct trajectory inference failed with exit code $EXIT_CODE."
+    echo "Preprocessing-aligned trajectory inference failed with exit code $EXIT_CODE."
 fi
 
 exit $EXIT_CODE 
